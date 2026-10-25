@@ -1,0 +1,25 @@
+"""Constantes de la aplicación y rutas de datos."""
+
+import os
+from pathlib import Path
+
+APP_NAME = "Notivoz"
+APP_VERSION = "0.1.0"
+
+
+def data_dir() -> Path:
+    """Carpeta de datos del usuario: %APPDATA%\\Notivoz.
+
+    Se puede cambiar con la variable de entorno NOTIVOZ_DATA_DIR (útil para pruebas).
+    """
+    override = os.environ.get("NOTIVOZ_DATA_DIR")
+    if override:
+        path = Path(override)
+    else:
+        path = Path(os.environ.get("APPDATA", Path.home())) / APP_NAME
+    path.mkdir(parents=True, exist_ok=True)
+    return path
+
+
+def db_path() -> Path:
+    return data_dir() / "notivoz.db"

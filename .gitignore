@@ -1,0 +1,22 @@
+# Entorno virtual y caché de Python
+.venv/
+__pycache__/
+*.py[cod]
+
+# Datos locales: la BD vive en %APPDATA%\Notivoz, esto es solo por seguridad
+*.db
+*.db-journal
+*.sqlite3
+
+# Empaquetado (PyInstaller / instalador)
+build/
+dist/
+
+# Modelos de voz (se descargan aparte, pesan mucho)
+assets/models/
+
+# Editores
+.vscode/*
+!.vscode/settings.json
+!.vscode/launch.json
+.idea/
