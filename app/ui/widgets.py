@@ -38,6 +38,21 @@ def _icono_calendario() -> QIcon:
     return QIcon(pixmap)
 
 
+def _icono_limpiar() -> QIcon:
+    """Una ✕ discreta para borrar el campo."""
+    pixmap = QPixmap(32, 32)
+    pixmap.fill(Qt.GlobalColor.transparent)
+    p = QPainter(pixmap)
+    p.setRenderHint(QPainter.RenderHint.Antialiasing)
+    lapiz = QPen(QColor(theme.TEXTO_SUAVE), 2.6)
+    lapiz.setCapStyle(Qt.PenCapStyle.RoundCap)
+    p.setPen(lapiz)
+    p.drawLine(10, 10, 22, 22)
+    p.drawLine(22, 10, 10, 22)
+    p.end()
+    return QIcon(pixmap)
+
+
 def configurar_calendario(cal: QCalendarWidget) -> None:
     """Aplica el aspecto oscuro de la app a un QCalendarWidget."""
     cal.setGridVisible(False)
@@ -79,26 +94,48 @@ class FechaEdit(QLineEdit):
 
     FORMATO = "dd/MM/yyyy"
 
-    def __init__(self, parent=None):
+    fechaCambiada = Signal()
+
+    def __init__(self, parent=None, opcional: bool = False, placeholder: str = ""):
+        """Con `opcional=True` el campo puede quedar vacío (date() devuelve una
+        QDate inválida) y muestra una ✕ para borrarlo; útil para filtros."""
         super().__init__(parent)
-        self._fecha = QDate.currentDate()
+        self._opcional = opcional
+        self._fecha = QDate() if opcional else QDate.currentDate()
         self.setReadOnly(True)
         self.setCursor(Qt.CursorShape.PointingHandCursor)
         self.setToolTip("Clic para elegir la fecha")
+        self.setPlaceholderText(placeholder)
         accion = self.addAction(_icono_calendario(), QLineEdit.ActionPosition.TrailingPosition)
         accion.triggered.connect(self.abrir_calendario)
+        self._accion_limpiar = None
+        if opcional:
+            self._accion_limpiar = self.addAction(
+                _icono_limpiar(), QLineEdit.ActionPosition.TrailingPosition
+            )
+            self._accion_limpiar.setToolTip("Quitar fecha")
+            self._accion_limpiar.triggered.connect(self.limpiar)
         self._mostrar()
 
     def date(self) -> QDate:
         return self._fecha
 
     def setDate(self, fecha: QDate) -> None:
-        if fecha.isValid():
+        if fecha.isValid() and fecha != self._fecha:
             self._fecha = fecha
             self._mostrar()
+            self.fechaCambiada.emit()
+
+    def limpiar(self) -> None:
+        if self._opcional and self._fecha.isValid():
+            self._fecha = QDate()
+            self._mostrar()
+            self.fechaCambiada.emit()
 
     def _mostrar(self) -> None:
-        self.setText(self._fecha.toString(self.FORMATO))
+        self.setText(self._fecha.toString(self.FORMATO) if self._fecha.isValid() else "")
+        if self._accion_limpiar is not None:
+            self._accion_limpiar.setVisible(self._fecha.isValid())
 
     def mousePressEvent(self, event) -> None:
         if event.button() == Qt.MouseButton.LeftButton:
@@ -114,6 +151,9 @@ class FechaEdit(QLineEdit):
         if abrir:
             self.abrir_calendario()
             return
+        if tecla in (Qt.Key.Key_Delete, Qt.Key.Key_Backspace):
+            self.limpiar()
+            return
         super().keyPressEvent(event)
 
     def abrir_calendario(self) -> None:
@@ -124,7 +164,7 @@ class FechaEdit(QLineEdit):
         cal = QCalendarWidget(popup)
         cal.setMinimumSize(300, 240)
         configurar_calendario(cal)
-        cal.setSelectedDate(self.date())
+        cal.setSelectedDate(self._fecha if self._fecha.isValid() else QDate.currentDate())
 
         def elegir(fecha: QDate) -> None:
             self.setDate(fecha)

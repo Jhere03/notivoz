@@ -12,7 +12,10 @@ from PySide6.QtWidgets import (
 )
 
 from app.config import APP_NAME, APP_VERSION, db_path
+from app.services.voz import voz
+from app.ui.notas_view import NotasView
 from app.ui.pendientes_view import PendientesView
+from app.ui.recordatorios import ProgramadorRecordatorios
 
 
 class ProximamenteView(QWidget):
@@ -42,17 +45,10 @@ class MainWindow(QMainWindow):
         self.setMinimumSize(900, 560)
 
         self.pendientes = PendientesView()
+        self.notas = NotasView()
         vistas = [
             ("Pendientes", self.pendientes),
-            (
-                "Notas",
-                ProximamenteView(
-                    "Notas",
-                    "Aquí podrás escribir notas con fecha y hora de recordatorio. "
-                    "Cuando llegue el momento, Notivoz te avisará en pantalla y por voz. "
-                    "Llega en la fase 2.",
-                ),
-            ),
+            ("Notas", self.notas),
             (
                 "Comandos de voz",
                 ProximamenteView(
@@ -100,3 +96,10 @@ class MainWindow(QMainWindow):
         self.setCentralWidget(central)
 
         self.statusBar().showMessage(f"Base de datos: {db_path()}")
+
+        self.recordatorios = ProgramadorRecordatorios(self)
+        self.recordatorios.notas_cambiaron.connect(self.notas.recargar)
+
+    def closeEvent(self, event) -> None:
+        voz().cerrar()
+        super().closeEvent(event)
