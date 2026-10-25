@@ -3,6 +3,7 @@
 import threading
 
 from PySide6.QtCore import Qt, QTimer, Signal
+from PySide6.QtGui import QCursor
 from PySide6.QtWidgets import (
     QCheckBox,
     QComboBox,
@@ -10,6 +11,8 @@ from PySide6.QtWidgets import (
     QHBoxLayout,
     QLabel,
     QLineEdit,
+    QListWidget,
+    QMenu,
     QMessageBox,
     QProgressBar,
     QPushButton,
@@ -20,11 +23,14 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from app.services import ajustes, inicio_windows, modelo_voz
+from app.services import ajustes, inicio_windows, lanzador, modelo_voz
 from app.services.ajustes import Clave
 from app.services.escucha import NOMBRE_ACTIVACION, dispositivos_entrada
 from app.services.microfono import PruebaMicrofono
+from app.services.personalidad import Personalidad
+from app.services.rutinas import DIAS_CORTOS
 from app.services.voz import VOCES_NEURALES, VOZ_WINDOWS, voz
+from app.ui.widgets import HoraEdit
 
 
 def _seccion(titulo: str, descripcion: str = "") -> tuple[QFrame, QVBoxLayout]:
@@ -60,6 +66,7 @@ class ConfiguracionView(QWidget):
     modelo_instalado = Signal()
     # True al empezar la prueba de micrófono (pausar la escucha), False al terminar.
     prueba_microfono_cambiada = Signal(bool)
+    personalidad_cambiada = Signal()
     _descarga_progreso = Signal(int, int)
     _descarga_terminada = Signal(str)  # mensaje de error, o "" si fue bien
 
@@ -109,6 +116,16 @@ class ConfiguracionView(QWidget):
         self.voz.setCurrentIndex(max(self.voz.findData(ajustes.obtener(Clave.VOZ_NOMBRE)), 0))
         self.voz.currentIndexChanged.connect(self._cambiar_voz)
 
+        self.personalidad = QComboBox()
+        for personalidad in Personalidad:
+            self.personalidad.addItem(personalidad.etiqueta, personalidad.value)
+        self.personalidad.setCurrentIndex(
+            max(self.personalidad.findData(ajustes.obtener(Clave.PERSONALIDAD)), 0)
+        )
+        self.ejemplo_personalidad = _ayuda("")
+        self._mostrar_ejemplo_personalidad()
+        self.personalidad.currentIndexChanged.connect(self._cambiar_personalidad)
+
         self.nombre = QLineEdit(ajustes.obtener(Clave.NOMBRE))
         self.nombre.setPlaceholderText("Tu nombre, para el saludo (opcional)")
         self.nombre.setMaxLength(40)
@@ -133,6 +150,8 @@ class ConfiguracionView(QWidget):
         probar.clicked.connect(self._probar)
 
         l_voz.addWidget(self._fila("Voz", self.voz))
+        l_voz.addWidget(self._fila("Personalidad", self.personalidad))
+        l_voz.addWidget(self.ejemplo_personalidad)
         l_voz.addWidget(
             _ayuda(
                 "Las voces naturales necesitan internet: el texto a leer se envía al servicio "
@@ -167,7 +186,7 @@ class ConfiguracionView(QWidget):
         como_usar = QLabel(
             f"Cada comando empieza siempre con la palabra «{NOMBRE_ACTIVACION}». "
             f"Di, por ejemplo, «{NOMBRE_ACTIVACION}, y el comando configurado», o di solo «{NOMBRE_ACTIVACION}», "
-            "espera el pitido y di el comando en los 3 segundos siguientes."
+            "espera el pitido y di el comando en los 5 segundos siguientes."
             f"Sin «{NOMBRE_ACTIVACION}» no se ejecuta nada, así una conversación normal nunca abre aplicaciones."
         )
         como_usar.setWordWrap(True)
@@ -216,12 +235,93 @@ class ConfiguracionView(QWidget):
         self._descarga_terminada.connect(self._al_terminar_descarga)
         self._actualizar_estado_modelo()
 
+        # --- Productividad -----------------------------------------------------
+        productividad, l_prod = _seccion("Productividad")
+        self.celebrar = QCheckBox("Celebrar mi racha cuando termino la primera tarea del día")
+        self.celebrar.setChecked(ajustes.obtener(Clave.CELEBRAR_RACHA))
+        self.celebrar.toggled.connect(lambda v: ajustes.guardar(Clave.CELEBRAR_RACHA, v))
+        self.resumen_apagar = QCheckBox("Leerme el resumen del día al apagar la PC")
+        self.resumen_apagar.setChecked(ajustes.obtener(Clave.RESUMEN_AL_APAGAR))
+        self.resumen_apagar.toggled.connect(lambda v: ajustes.guardar(Clave.RESUMEN_AL_APAGAR, v))
+        self.aviso_ocio = QCheckBox("Recordarme mis tareas si abro apps de ocio en horario de trabajo")
+        self.aviso_ocio.setChecked(ajustes.obtener(Clave.AVISO_OCIO))
+        self.aviso_ocio.toggled.connect(self._cambiar_aviso_ocio)
+
+        # Horario laboral
+        self.dias_laborales: list[QPushButton] = []
+        fila_dias = QHBoxLayout()
+        fila_dias.setSpacing(4)
+        dias_guardados = set(ajustes.obtener(Clave.HORARIO_DIAS))
+        for i, dia in enumerate(DIAS_CORTOS):
+            boton = QPushButton(dia)
+            boton.setObjectName("Dia")
+            boton.setCheckable(True)
+            boton.setChecked(i in dias_guardados)
+            boton.setFixedWidth(46)
+            boton.setCursor(Qt.CursorShape.PointingHandCursor)
+            boton.toggled.connect(self._guardar_horario)
+            self.dias_laborales.append(boton)
+            fila_dias.addWidget(boton)
+        fila_dias.addStretch()
+        self.hora_inicio = HoraEdit()
+        self.hora_inicio.setText(ajustes.obtener(Clave.HORARIO_INICIO))
+        self.hora_fin = HoraEdit()
+        self.hora_fin.setText(ajustes.obtener(Clave.HORARIO_FIN))
+        for campo in (self.hora_inicio, self.hora_fin):
+            campo.editingFinished.connect(self._guardar_horario)
+        fila_horas = QHBoxLayout()
+        fila_horas.setSpacing(8)
+        fila_horas.addWidget(QLabel("de"))
+        fila_horas.addWidget(self.hora_inicio)
+        fila_horas.addWidget(QLabel("a"))
+        fila_horas.addWidget(self.hora_fin)
+        fila_horas.addStretch()
+
+        # Apps de ocio
+        self.apps_ocio = QListWidget()
+        self.apps_ocio.setFixedHeight(110)
+        self.apps_ocio.addItems(ajustes.obtener(Clave.APPS_OCIO))
+        agregar_app = QPushButton("+ Elegir de las apps abiertas")
+        agregar_app.setAutoDefault(False)
+        agregar_app.clicked.connect(self._agregar_app_ocio)
+        quitar_app = QPushButton("Quitar")
+        quitar_app.setAutoDefault(False)
+        quitar_app.clicked.connect(self._quitar_app_ocio)
+        fila_apps = QHBoxLayout()
+        fila_apps.addWidget(agregar_app)
+        fila_apps.addWidget(quitar_app)
+        fila_apps.addStretch()
+
+        self._bloque_ocio = QWidget()
+        self._bloque_ocio.setObjectName("Fila")
+        bloque = QVBoxLayout(self._bloque_ocio)
+        bloque.setContentsMargins(26, 0, 0, 0)
+        bloque.setSpacing(8)
+        bloque.addWidget(QLabel("Horario de trabajo"))
+        bloque.addLayout(fila_dias)
+        bloque.addLayout(fila_horas)
+        bloque.addWidget(QLabel("Apps de ocio"))
+        bloque.addWidget(self.apps_ocio)
+        bloque.addLayout(fila_apps)
+        self._bloque_ocio.setEnabled(self.aviso_ocio.isChecked())
+
+        l_prod.addWidget(self.celebrar)
+        l_prod.addWidget(self.resumen_apagar)
+        l_prod.addWidget(
+            _ayuda("Al apagar, Windows mostrará «Notivoz está leyendo tu resumen» unos segundos; puedes apagar igual.")
+        )
+        l_prod.addWidget(self.aviso_ocio)
+        l_prod.addWidget(
+            _ayuda("Como mucho una vez cada 30 minutos, Notivoz te recuerda tu tarea más importante.")
+        )
+        l_prod.addWidget(self._bloque_ocio)
+
         contenido = QWidget()
         contenido.setObjectName("ListaNotas")
         columna = QVBoxLayout(contenido)
         columna.setContentsMargins(0, 0, 6, 0)
         columna.setSpacing(14)
-        for marco in (inicio, bandeja, seccion_voz, seccion_escucha):
+        for marco in (inicio, bandeja, seccion_voz, seccion_escucha, productividad):
             marco.setMaximumWidth(760)
             columna.addWidget(marco)
         columna.addStretch()
@@ -274,6 +374,46 @@ class ConfiguracionView(QWidget):
         voz().volumen = valor
         ajustes.guardar(Clave.VOZ_VOLUMEN, valor)
         self._actualizar_etiquetas()
+
+    def _mostrar_ejemplo_personalidad(self) -> None:
+        personalidad = Personalidad(self.personalidad.currentData())
+        self.ejemplo_personalidad.setText(f"Por ejemplo: {personalidad.ejemplo}")
+
+    def _cambiar_personalidad(self) -> None:
+        ajustes.guardar(Clave.PERSONALIDAD, self.personalidad.currentData())
+        # Solo se muestra el ejemplo escrito: cambiar de personalidad no habla.
+        self._mostrar_ejemplo_personalidad()
+        self.personalidad_cambiada.emit()
+
+    def _cambiar_aviso_ocio(self, activo: bool) -> None:
+        ajustes.guardar(Clave.AVISO_OCIO, activo)
+        self._bloque_ocio.setEnabled(activo)
+
+    def _guardar_horario(self) -> None:
+        dias = [i for i, boton in enumerate(self.dias_laborales) if boton.isChecked()]
+        ajustes.guardar(Clave.HORARIO_DIAS, dias)
+        for campo, clave in ((self.hora_inicio, Clave.HORARIO_INICIO), (self.hora_fin, Clave.HORARIO_FIN)):
+            if campo.hora() is not None:
+                ajustes.guardar(clave, campo.text())
+
+    def _guardar_apps_ocio(self) -> None:
+        apps = [self.apps_ocio.item(i).text() for i in range(self.apps_ocio.count())]
+        ajustes.guardar(Clave.APPS_OCIO, apps)
+
+    def _agregar_app_ocio(self) -> None:
+        actuales = {self.apps_ocio.item(i).text() for i in range(self.apps_ocio.count())}
+        menu = QMenu(self)
+        for nombre in lanzador.apps_con_ventana():
+            if nombre not in actuales:
+                menu.addAction(nombre, lambda n=nombre: (self.apps_ocio.addItem(n), self._guardar_apps_ocio()))
+        if menu.isEmpty():
+            menu.addAction("Abre primero la app (por ejemplo Steam) y vuelve a intentarlo").setEnabled(False)
+        menu.exec(QCursor.pos())
+
+    def _quitar_app_ocio(self) -> None:
+        for item in self.apps_ocio.selectedItems():
+            self.apps_ocio.takeItem(self.apps_ocio.row(item))
+        self._guardar_apps_ocio()
 
     def _cambiar_voz(self) -> None:
         nombre = self.voz.currentData()

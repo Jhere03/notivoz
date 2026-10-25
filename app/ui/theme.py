@@ -60,9 +60,10 @@ QToolTip {{
     background: transparent;
     border: none;
     outline: none;
+    font-weight: bold;
 }}
 #Nav::item {{
-    padding: 10px 14px;
+    padding: 10px 12px;
     margin: 2px 10px;
     border-radius: 8px;
     color: {TEXTO_SUAVE};
@@ -70,6 +71,8 @@ QToolTip {{
 #Nav::item:hover {{
     background: {SUPERFICIE_ALTA};
     color: {TEXTO};
+    /* Igual que los botones: crece un poco al pasar el cursor. */
+    margin: 0px 8px;
 }}
 #Nav::item:selected {{
     background: {ACENTO};
@@ -120,9 +123,15 @@ QPushButton {{
     border: 1px solid {BORDE};
     border-radius: 6px;
     padding: 7px 14px;
+    /* Espacio reservado para "crecer" al pasar el cursor sin mover nada alrededor. */
+    margin: 2px;
 }}
 QPushButton:hover {{
     border-color: {TEXTO_SUAVE};
+}}
+/* Todos los botones se agrandan al pasar el cursor: el fondo ocupa el margen reservado. */
+QPushButton:hover:!disabled {{
+    margin: 0px;
 }}
 QPushButton#Primario {{
     background: {ACENTO};
@@ -201,6 +210,31 @@ QPushButton#Rapido:hover {{
     border-color: {ACENTO};
     color: {TEXTO};
 }}
+QPushButton#Dia {{
+    background: {SUPERFICIE};
+    border: 1px solid {BORDE};
+    border-radius: 6px;
+    padding: 6px 0;
+    color: {TEXTO_SUAVE};
+}}
+QPushButton#Dia:checked {{
+    background: {ACENTO};
+    border-color: {ACENTO};
+    color: white;
+    font-weight: 600;
+}}
+QPushButton#Dia:disabled, QPushButton#Dia:checked:disabled {{
+    background: {SUPERFICIE};
+    border-color: {BORDE};
+    color: #4b5160;
+}}
+QPushButton#Dia:checked:disabled {{
+    background: #2b2840;
+    color: {TEXTO_SUAVE};
+}}
+QListWidget:disabled, QLabel:disabled, QLineEdit:disabled {{
+    color: #4b5160;
+}}
 QPushButton#Enlace {{
     background: transparent;
     border: none;
@@ -210,6 +244,8 @@ QPushButton#Enlace {{
 }}
 QPushButton#Enlace:hover {{
     color: {ACENTO_HOVER};
+    background: rgba(124, 92, 255, 0.14);
+    border-radius: 6px;
 }}
 QPushButton::menu-indicator {{
     image: none;
@@ -302,6 +338,17 @@ QPushButton#AlertaCerrar {{
 }}
 QPushButton#AlertaCerrar:hover {{
     color: {TEXTO};
+    background: rgba(255, 255, 255, 0.08);
+    border-radius: 6px;
+}}
+
+#Racha {{
+    background: rgba(245, 158, 11, 0.12);
+    border: 1px solid rgba(245, 158, 11, 0.45);
+    border-radius: 8px;
+    color: #fbbf24;
+    padding: 6px 12px;
+    font-weight: 600;
 }}
 
 /* Comandos */
@@ -314,6 +361,20 @@ QPushButton#AlertaCerrar:hover {{
 }}
 #ChipIcono {{
     background: transparent;
+}}
+QPushButton#IndicadorEnfoque {{
+    background: rgba(124, 92, 255, 0.16);
+    border: 1px solid rgba(124, 92, 255, 0.55);
+    border-radius: 8px;
+    color: {ACENTO_HOVER};
+    font-weight: 600;
+    text-align: left;
+    padding: 7px 10px;
+    margin: 8px 12px 2px 12px;
+}}
+QPushButton#IndicadorEnfoque:hover {{
+    background: rgba(124, 92, 255, 0.28);
+    margin: 6px 10px 0 10px;
 }}
 #EstadoEscucha {{
     background: transparent;

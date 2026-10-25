@@ -12,6 +12,7 @@ class Bandeja(QSystemTrayIcon):
     nueva_tarea = Signal()
     nueva_nota = Signal()
     leer_pendientes = Signal()
+    resumen_dia = Signal()
     salir = Signal()
 
     def __init__(self, parent=None):
@@ -25,6 +26,7 @@ class Bandeja(QSystemTrayIcon):
         menu.addAction("Nueva nota", self.nueva_nota.emit)
         menu.addSeparator()
         menu.addAction("leeme", self.leer_pendientes.emit)
+        menu.addAction("Resumen del día", self.resumen_dia.emit)
         menu.addSeparator()
         menu.addAction("Salir de Notivoz", self.salir.emit)
         # Se guarda como atributo: sin referencia Python lo borraría.

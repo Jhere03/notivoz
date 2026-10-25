@@ -11,6 +11,7 @@ from sqlalchemy.orm import selectinload
 from app.data.database import session_scope
 from app.data.models import Comando, ComandoApp
 from app.services import lanzador
+from app.services.personalidad import Frases
 from app.services.voz import voz
 
 log = logging.getLogger(__name__)
@@ -37,10 +38,12 @@ def normalizar_frase(texto: str) -> str:
     return " ".join(texto.split())
 
 
-def respuesta_de(comando: Comando) -> str:
+def respuesta_de(comando: Comando, frases: Frases) -> str:
+    """La respuesta propia del comando o, si no tiene, una según la personalidad
+    y el tipo de modo («¡A chambear!», «¡A relajarse!»…)."""
     if comando.respuesta.strip():
         return comando.respuesta.strip()
-    return f"{comando.frase.capitalize()} activado"
+    return frases.comando_activado(comando.frase, [app.nombre for app in comando.apps])
 
 
 def listar() -> list[Comando]:
@@ -104,18 +107,23 @@ def eliminar(comando_id: int) -> None:
             s.delete(comando)
 
 
-def ejecutar(comando_id: int) -> None:
+def ejecutar(comando_id: int, frases: Frases) -> None:
     """Abre todas las apps del comando en segundo plano y, cuando están listas,
-    lo anuncia en voz alta («Modo trabajo activado»)."""
+    lo anuncia en voz alta («Modo trabajo activado»). Recuerda qué procesos
+    abrió, para poder cerrarlos después."""
     comando = obtener(comando_id)
     if comando is None:
         return
     destinos = [app.destino for app in comando.apps]
-    respuesta = respuesta_de(comando)
+    respuesta = respuesta_de(comando, frases)
 
     def trabajar() -> None:
         log.info("Ejecutando comando «%s» (%d apps)", comando.frase, len(destinos))
-        fallidos = lanzador.abrir_y_esperar(destinos)
+        resultado = lanzador.abrir_y_esperar(destinos)
+        if resultado.procesos_nuevos:
+            # Si todo ya estaba abierto no hay nada nuevo: se conserva lo aprendido antes.
+            _guardar_procesos(comando_id, resultado.procesos_nuevos)
+        fallidos = resultado.fallidos
         if fallidos and len(fallidos) == len(destinos):
             voz().hablar(f"No pude abrir las aplicaciones de {comando.frase}.")
             return
@@ -124,3 +132,25 @@ def ejecutar(comando_id: int) -> None:
             voz().hablar(f"No pude abrir {len(fallidos)} de ellas.")
 
     threading.Thread(target=trabajar, name="Comando", daemon=True).start()
+
+
+def procesos_de(comando: Comando) -> set[str]:
+    return {p for p in comando.procesos.split(";") if p}
+
+
+def _guardar_procesos(comando_id: int, procesos: set[str]) -> None:
+    with session_scope() as s:
+        comando = s.get(Comando, comando_id)
+        if comando is not None:
+            comando.procesos = ";".join(sorted(procesos))
+
+
+def cerrar(comando_id: int, frases: Frases) -> str:
+    """Cierra (amablemente) lo que el comando abrió. Devuelve la frase a decir."""
+    comando = obtener(comando_id)
+    if comando is None:
+        return ""
+    cerrados = lanzador.cerrar_procesos(procesos_de(comando))
+    log.info("Comando «%s» cerrado: %d programas", comando.frase, cerrados)
+    clave = "comando_cerrado" if cerrados else "comando_nada_que_cerrar"
+    return frases.frase(clave, modo=comando.frase.capitalize())
