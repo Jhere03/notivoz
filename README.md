@@ -10,7 +10,7 @@ Hecho con **Python**, **PySide6 (Qt)** y **SQLite**.
 |---|---|
 | Tabla de pendientes por cliente: importancia, fecha de ingreso, estado, búsqueda y filtros | ✅ Fase 1 |
 | Notas con recordatorio: alerta por encima de todo y voz que dice «Recuerda: …» | ✅ Fase 2 |
-| Icono en la bandeja del sistema, inicio con Windows y lectura de pendientes por voz | 🔜 Fase 3 |
+| Icono en la bandeja del sistema, inicio con Windows y lectura de pendientes por voz | ✅ Fase 3 |
 | Panel de comandos: cada frase abre una lista de aplicaciones | 🔜 Fase 4 |
 | Reconocimiento de voz offline (Vosk), por ejemplo «Notivoz, modo chill» | 🔜 Fase 5 |
 | Ejecutable `.exe` e instalador | 🔜 Fase 6 |
@@ -55,9 +55,25 @@ En VS Code basta con abrir la carpeta y pulsar **F5**. La configuración «Notiv
 - Las tarjetas muestran 🔔 con la hora del próximo aviso, ✓ *Avisada* cuando ya sonó, o *Creada* con su fecha si no tienen recordatorio.
 - El filtro **Fecha** muestra las notas de un día: se usa la fecha del recordatorio o, si la nota no tiene, la de creación. La ✕ (o `Supr`) quita el filtro.
 - El filtro de tipo permite ver todas, solo las próximas, las que no tienen recordatorio o las ya avisadas.
-- La voz usa las voces de Windows y elige automáticamente una en español (por ejemplo *Microsoft Helena*).
+- **Voz:**
+  - Por defecto usa **voces neuronales de Microsoft** (edge-tts), muy naturales: Camila (Perú), Dalia (México), Elvira (España) y otras. Se eligen en **Configuración → Voz**.
+  - Estas voces **necesitan internet**, porque el texto a leer se envía al servicio de voz de Microsoft Edge.
+  - Sin conexión, Notivoz usa automáticamente la voz de Windows en español (*Microsoft Helena*).
+  - Los audios ya generados se guardan en `%APPDATA%\Notivoz\voz_cache` (máximo 300), así las frases repetidas suenan al instante y también sin internet.
+  - Si prefieres no usar internet para la voz, elige **«Voz de Windows»**.
 
-> Por ahora los recordatorios solo suenan con la app abierta. En la fase 3 Notivoz quedará en la bandeja del sistema y se iniciará con Windows.
+### Bandeja e inicio con Windows
+
+- Notivoz vive en la **bandeja del sistema**, junto al reloj. Al cerrar la ventana sigue funcionando ahí y los recordatorios siguen sonando.
+  - Clic en el icono abre la ventana.
+  - Clic derecho muestra: Nueva tarea, Nueva nota, leeme y **Salir de Notivoz**.
+- En **Configuración** puedes activar:
+  - **Iniciar con Windows.** Se guarda en el registro del usuario (`HKCU\Software\Microsoft\Windows\CurrentVersion\Run`), sin permisos de administrador.
+  - **Arrancar oculto en la bandeja.**
+  - **Leer en voz alta** tus tareas pendientes y en proceso (las 5 más importantes) y los recordatorios de hoy. Por ejemplo: «Buenos días, Jhair. Tienes 3 tareas pendientes y 1 en proceso. Tus tareas: …».
+  - Tu nombre para el saludo, la velocidad y el volumen de la voz, y un botón para probarla.
+- Notivoz no se abre dos veces: si ya está en la bandeja y lo vuelves a ejecutar, solo se muestra la ventana.
+- Hay un registro de eventos y errores en `%APPDATA%\Notivoz\notivoz.log`.
 
 ## Dónde se guardan los datos
 
@@ -77,13 +93,16 @@ notivoz/
 ├── app/
 │   ├── config.py            Nombre, versión y rutas de datos
 │   ├── data/
-│   │   ├── models.py        Tablas: clientes, pendientes, notas
+│   │   ├── models.py        Tablas: clientes, pendientes, notas, ajustes
 │   │   └── database.py      Conexión SQLite y sesiones
 │   ├── services/
 │   │   ├── pendientes.py    Lógica de tareas: listar, guardar, cambiar estado, eliminar
 │   │   ├── clientes.py      Lógica de clientes: crear, renombrar, eliminar
 │   │   ├── notas.py         Lógica de notas y recordatorios: vencidas, posponer…
-│   │   └── voz.py           Texto a voz con las voces de Windows (SAPI)
+│   │   ├── voz.py           Texto a voz: voces neuronales (edge-tts) con respaldo SAPI
+│   │   ├── saludo.py        Texto que se lee al iniciar
+│   │   ├── ajustes.py       Preferencias guardadas en la BD
+│   │   └── inicio_windows.py  Inicio automático (registro Run)
 │   └── ui/
 │       ├── theme.py         Colores y estilos (tema oscuro)
 │       ├── main_window.py   Ventana con barra lateral
@@ -95,6 +114,9 @@ notivoz/
 │       ├── nota_dialog.py
 │       ├── recordatorios.py Alerta siempre encima y programador de avisos
 │       ├── widgets.py       Campo de fecha con calendario, contadores de estado
-│       └── formato.py       Textos de fecha («Hoy 15:30», «en 10 min»)
+│       ├── formato.py       Textos de fecha («Hoy 15:30», «en 10 min»)
+│       ├── configuracion_view.py
+│       ├── bandeja.py       Icono y menú de la bandeja del sistema
+│       └── icono.py         Icono de la app dibujado por código
 └── requirements.txt
 ```

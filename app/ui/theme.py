@@ -304,6 +304,44 @@ QPushButton#AlertaCerrar:hover {{
     color: {TEXTO};
 }}
 
+/* Configuración */
+#Seccion {{
+    background: {SUPERFICIE};
+    border: 1px solid {BORDE};
+    border-radius: 10px;
+}}
+#Seccion QLabel, #Seccion QCheckBox, #Fila {{
+    background: transparent;
+}}
+#SeccionTitulo {{
+    font-size: 12pt;
+    font-weight: 600;
+}}
+#Ayuda {{
+    color: {TEXTO_SUAVE};
+    font-size: 9pt;
+}}
+QSlider {{
+    background: transparent;
+    min-height: 22px;
+}}
+QSlider::groove:horizontal {{
+    height: 4px;
+    background: {BORDE};
+    border-radius: 2px;
+}}
+QSlider::sub-page:horizontal {{
+    background: {ACENTO};
+    border-radius: 2px;
+}}
+QSlider::handle:horizontal {{
+    background: white;
+    width: 16px;
+    height: 16px;
+    margin: -6px 0;
+    border-radius: 8px;
+}}
+
 /* Calendario */
 #CalendarioPopup {{
     background: {SUPERFICIE_ALTA};
