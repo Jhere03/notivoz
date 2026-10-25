@@ -189,6 +189,121 @@ QScrollBar::add-line, QScrollBar::sub-line {{
     height: 0;
 }}
 
+QPushButton#Rapido {{
+    background: transparent;
+    border: 1px solid {BORDE};
+    border-radius: 12px;
+    padding: 3px 10px;
+    color: {TEXTO_SUAVE};
+    font-size: 9pt;
+}}
+QPushButton#Rapido:hover {{
+    border-color: {ACENTO};
+    color: {TEXTO};
+}}
+QPushButton#Enlace {{
+    background: transparent;
+    border: none;
+    padding: 2px 6px;
+    color: {TEXTO_SUAVE};
+    font-size: 9pt;
+}}
+QPushButton#Enlace:hover {{
+    color: {ACENTO_HOVER};
+}}
+QPushButton::menu-indicator {{
+    image: none;
+    width: 0;
+}}
+
+QCheckBox {{
+    spacing: 8px;
+    background: transparent;
+}}
+QCheckBox::indicator {{
+    width: 16px;
+    height: 16px;
+    border: 1px solid {TEXTO_SUAVE};
+    border-radius: 4px;
+    background: {SUPERFICIE};
+}}
+QCheckBox::indicator:checked {{
+    background: {ACENTO};
+    border-color: {ACENTO};
+}}
+QLineEdit:disabled {{
+    color: {TEXTO_SUAVE};
+}}
+
+/* Notas */
+#ScrollNotas, #ListaNotas {{
+    background: transparent;
+}}
+#NotaCard {{
+    background: {SUPERFICIE};
+    border: 1px solid {BORDE};
+    border-radius: 10px;
+}}
+#NotaCard:hover {{
+    border-color: #4a4470;
+}}
+#NotaCard QLabel {{
+    background: transparent;
+}}
+#NotaTitulo {{
+    font-size: 11pt;
+    font-weight: 600;
+}}
+#NotaContenido {{
+    color: #b9bfca;
+}}
+#BadgeProximo, #BadgeAvisado, #BadgeCreada {{
+    border-radius: 10px;
+    padding: 3px 10px;
+    font-size: 9pt;
+}}
+#BadgeProximo {{
+    background: rgba(124, 92, 255, 0.18);
+    border: 1px solid rgba(124, 92, 255, 0.6);
+    color: {ACENTO_HOVER};
+}}
+#BadgeAvisado, #BadgeCreada {{
+    background: transparent;
+    border: 1px solid {BORDE};
+    color: {TEXTO_SUAVE};
+}}
+
+/* Alerta de recordatorio */
+#Alerta {{
+    background: {SUPERFICIE_ALTA};
+    border: 2px solid {ACENTO};
+    border-radius: 12px;
+}}
+#Alerta QLabel {{
+    background: transparent;
+}}
+#AlertaEtiqueta {{
+    color: {ACENTO_HOVER};
+    font-size: 8.5pt;
+    font-weight: 700;
+}}
+#AlertaTitulo {{
+    font-size: 14pt;
+    font-weight: 600;
+}}
+#AlertaContenido {{
+    color: #c4c9d3;
+}}
+QPushButton#AlertaCerrar {{
+    background: transparent;
+    border: none;
+    color: {TEXTO_SUAVE};
+    padding: 0 4px;
+}}
+QPushButton#AlertaCerrar:hover {{
+    color: {TEXTO};
+}}
+
 /* Calendario */
 #CalendarioPopup {{
     background: {SUPERFICIE_ALTA};

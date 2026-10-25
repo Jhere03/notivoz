@@ -3,7 +3,7 @@
 from datetime import date, datetime
 from enum import IntEnum, StrEnum
 
-from sqlalchemy import Date, DateTime, ForeignKey, Integer, String, Text, func
+from sqlalchemy import Boolean, Date, DateTime, ForeignKey, Integer, String, Text, func
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
 
@@ -63,3 +63,18 @@ class Pendiente(Base):
     )
 
     cliente: Mapped[Cliente | None] = relationship(back_populates="pendientes")
+
+
+class Nota(Base):
+    __tablename__ = "notas"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    titulo: Mapped[str] = mapped_column(String(200))
+    contenido: Mapped[str] = mapped_column(Text, default="")
+    # Fecha y hora local del aviso; None si la nota no tiene recordatorio.
+    recordatorio: Mapped[datetime | None] = mapped_column(DateTime)
+    notificado: Mapped[bool] = mapped_column(Boolean, default=False)
+    creado_en: Mapped[datetime] = mapped_column(DateTime, default=datetime.now)
+    actualizado_en: Mapped[datetime] = mapped_column(
+        DateTime, default=datetime.now, onupdate=datetime.now
+    )
