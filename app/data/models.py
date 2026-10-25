@@ -87,3 +87,35 @@ class Ajuste(Base):
 
     clave: Mapped[str] = mapped_column(String(60), primary_key=True)
     valor: Mapped[str] = mapped_column(Text)
+
+
+class Comando(Base):
+    """Frase de voz que abre una lista de aplicaciones (por ejemplo «modo trabajo»)."""
+
+    __tablename__ = "comandos"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    frase: Mapped[str] = mapped_column(String(120), unique=True)
+    # Lo que Notivoz dice al terminar de abrir todo; vacío = «<Frase> activado».
+    respuesta: Mapped[str] = mapped_column(String(200), default="")
+    activo: Mapped[bool] = mapped_column(Boolean, default=True)
+    creado_en: Mapped[datetime] = mapped_column(DateTime, default=datetime.now)
+
+    apps: Mapped[list[ComandoApp]] = relationship(
+        back_populates="comando",
+        order_by="ComandoApp.orden",
+        cascade="all, delete-orphan",
+    )
+
+
+class ComandoApp(Base):
+    __tablename__ = "comando_apps"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    comando_id: Mapped[int] = mapped_column(ForeignKey("comandos.id", ondelete="CASCADE"))
+    nombre: Mapped[str] = mapped_column(String(120))
+    # Ruta a un .exe/.lnk, un enlace (https://, steam://…) o shell:AppsFolder\<id>.
+    destino: Mapped[str] = mapped_column(Text)
+    orden: Mapped[int] = mapped_column(Integer, default=0)
+
+    comando: Mapped[Comando] = relationship(back_populates="apps")

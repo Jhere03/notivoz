@@ -1,7 +1,15 @@
-"""Icono de Notivoz dibujado por código: cuadro morado con ondas de voz."""
+"""Logo de Notivoz.
+
+Se carga desde assets/logo.png (reemplaza ese archivo para cambiar el logo).
+Si no existe, se usa el dibujado por código: cuadro morado con ondas de voz.
+"""
 
 from PySide6.QtCore import QRectF, Qt
 from PySide6.QtGui import QColor, QIcon, QLinearGradient, QPainter, QPixmap
+
+from app.config import ruta_recurso
+
+RUTA_LOGO = "assets/logo.png"
 
 _TAMANOS = (16, 20, 24, 32, 40, 48, 64, 128, 256)
 _ALTURAS_BARRAS = (0.26, 0.48, 0.66, 0.48, 0.26)
@@ -37,7 +45,18 @@ def _dibujar(n: int) -> QPixmap:
 
 
 def icono_app() -> QIcon:
+    """Logo de la app: assets/logo.png si existe; si no, el dibujado por código."""
+    archivo = ruta_recurso(RUTA_LOGO)
+    if archivo.exists():
+        icono = QIcon(str(archivo))
+        if not icono.isNull():
+            return icono
     icono = QIcon()
     for n in _TAMANOS:
         icono.addPixmap(_dibujar(n))
     return icono
+
+
+def exportar_logo_dibujado(destino: str, tamano: int = 512) -> None:
+    """Guarda el logo dibujado por código como imagen PNG."""
+    _dibujar(tamano).save(destino, "PNG")

@@ -1,14 +1,18 @@
 """Widgets reutilizables: campo de fecha con calendario y contador de estado."""
 
-from PySide6.QtCore import QDate, QPoint, QRectF, Qt, Signal
+from PySide6.QtCore import QDate, QEvent, QObject, QPoint, QRectF, Qt, Signal
 from PySide6.QtGui import QColor, QFont, QIcon, QPainter, QPen, QPixmap, QTextCharFormat
 from PySide6.QtWidgets import (
+    QAbstractScrollArea,
+    QAbstractSpinBox,
     QApplication,
     QCalendarWidget,
+    QComboBox,
     QFrame,
     QHBoxLayout,
     QLabel,
     QLineEdit,
+    QSlider,
     QToolButton,
     QVBoxLayout,
 )
@@ -236,3 +240,22 @@ class EstadoChip(QFrame):
         if event.button() == Qt.MouseButton.LeftButton:
             self.clicked.emit()
         super().mousePressEvent(event)
+
+
+class SinRuedaAccidental(QObject):
+    """Filtro para toda la app: la rueda del mouse sobre listas desplegables,
+    deslizadores y campos numéricos no cambia su valor, sino que desplaza la
+    página que los contiene (como en un navegador)."""
+
+    # QSlider y no QAbstractSlider: las barras de desplazamiento sí deben usar la rueda.
+    _TIPOS = (QComboBox, QSlider, QAbstractSpinBox)
+
+    def eventFilter(self, obj: QObject, event: QEvent) -> bool:
+        if event.type() != QEvent.Type.Wheel or not isinstance(obj, self._TIPOS):
+            return False
+        area = obj.parentWidget()
+        while area is not None and not isinstance(area, QAbstractScrollArea):
+            area = area.parentWidget()
+        if area is not None:
+            QApplication.sendEvent(area.verticalScrollBar(), event)
+        return True

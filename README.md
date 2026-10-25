@@ -11,8 +11,8 @@ Hecho con **Python**, **PySide6 (Qt)** y **SQLite**.
 | Tabla de pendientes por cliente: importancia, fecha de ingreso, estado, búsqueda y filtros | ✅ Fase 1 |
 | Notas con recordatorio: alerta por encima de todo y voz que dice «Recuerda: …» | ✅ Fase 2 |
 | Icono en la bandeja del sistema, inicio con Windows y lectura de pendientes por voz | ✅ Fase 3 |
-| Panel de comandos: cada frase abre una lista de aplicaciones | 🔜 Fase 4 |
-| Reconocimiento de voz offline (Vosk), por ejemplo «Notivoz, modo chill» | 🔜 Fase 5 |
+| Panel de comandos: cada frase abre una lista de aplicaciones | ✅ Fase 4 |
+| Reconocimiento de voz offline (Vosk), por ejemplo «Notivoz, modo trabajo» | ✅ Fase 5 |
 | Ejecutable `.exe` e instalador | 🔜 Fase 6 |
 
 ## Requisitos
@@ -75,6 +75,32 @@ En VS Code basta con abrir la carpeta y pulsar **F5**. La configuración «Notiv
 - Notivoz no se abre dos veces: si ya está en la bandeja y lo vuelves a ejecutar, solo se muestra la ventana.
 - Hay un registro de eventos y errores en `%APPDATA%\Notivoz\notivoz.log`.
 
+### Comandos de voz
+
+- En **Comandos de voz**, **+ Nuevo comando** crea una frase (por ejemplo *modo trabajo*) y la lista de lo que abre:
+  - **Apps instaladas**: la lista del menú Inicio, incluidas las de la Tienda como Spotify.
+  - **Archivos** `.exe` / `.lnk`.
+  - **Webs o enlaces** (`https://…`, `steam://…`).
+  - Las apps se abren en el orden de la lista; puedes arrastrarlas para reordenarlas.
+- Cada comando tiene una **respuesta** que Notivoz dice cuando **todas** las apps terminaron de abrir. Por defecto es «Modo trabajo activado».
+- **▶ Ejecutar** abre el comando sin hablar. El botón **🎙 Activar micrófono** enciende la escucha; queda recordada para la próxima vez.
+- Para usarlo por voz:
+  - Di **«Notivoz, modo trabajo»**.
+  - O di solo **«Notivoz»**, espera el pitido y di la frase dentro de los 3 segundos siguientes.
+  - Todo comando empieza siempre con «Notivoz»: sin esa palabra no se ejecuta nada.
+- **Burbuja de voz:** al decir «Notivoz» aparece una burbuja a la derecha de la pantalla, encima de cualquier aplicación y aunque Notivoz esté cerrado en la bandeja.
+  - Reacciona al volumen de tu voz.
+  - Muestra un anillo girando mientras se abren las apps.
+  - Palpita mientras Notivoz dice la respuesta y luego desaparece.
+  - Si no dices un comando en 3 segundos, se oculta y deja de esperarlo.
+- **Reconocimiento offline (Vosk):**
+  - Se descarga una vez un modelo en español de unos 39 MB, desde **Configuración → Comandos de voz**.
+  - El audio del micrófono **nunca sale de tu PC**.
+  - El reconocedor solo puede "oír" la palabra de activación, tus frases y algunas palabras comunes de relleno. Así una conversación normal no dispara comandos.
+  - Mientras Notivoz habla, no escucha, para no activarse con su propia voz.
+- Las frases deben usar palabras en español que el modelo conozca. Si alguna no la conoce, el formulario te avisa al guardar.
+- En Configuración se elige el **micrófono**. Con **🎙 Probar micrófono** oyes tu voz con 1 segundo de retraso, para comprobar que funciona. La prueba termina con **Terminar prueba**, al cambiar de vista o al cerrar la app.
+
 ## Dónde se guardan los datos
 
 La base de datos **no** está en el repositorio. Vive en la carpeta de datos de tu usuario:
@@ -93,7 +119,7 @@ notivoz/
 ├── app/
 │   ├── config.py            Nombre, versión y rutas de datos
 │   ├── data/
-│   │   ├── models.py        Tablas: clientes, pendientes, notas, ajustes
+│   │   ├── models.py        Tablas: clientes, pendientes, notas, ajustes, comandos
 │   │   └── database.py      Conexión SQLite y sesiones
 │   ├── services/
 │   │   ├── pendientes.py    Lógica de tareas: listar, guardar, cambiar estado, eliminar
@@ -102,7 +128,12 @@ notivoz/
 │   │   ├── voz.py           Texto a voz: voces neuronales (edge-tts) con respaldo SAPI
 │   │   ├── saludo.py        Texto que se lee al iniciar
 │   │   ├── ajustes.py       Preferencias guardadas en la BD
-│   │   └── inicio_windows.py  Inicio automático (registro Run)
+│   │   ├── inicio_windows.py  Inicio automático (registro Run)
+│   │   ├── comandos.py      Comandos de voz: guardar, ejecutar y anunciar
+│   │   ├── lanzador.py      Abre apps/enlaces y espera a que estén listas
+│   │   ├── escucha.py       Reconocimiento de voz offline (Vosk) y palabra de activación
+│   │   ├── modelo_voz.py    Descarga del modelo de Vosk en español
+│   │   └── microfono.py     Nivel de voz y prueba de micrófono con eco retrasado
 │   └── ui/
 │       ├── theme.py         Colores y estilos (tema oscuro)
 │       ├── main_window.py   Ventana con barra lateral
@@ -117,6 +148,9 @@ notivoz/
 │       ├── formato.py       Textos de fecha («Hoy 15:30», «en 10 min»)
 │       ├── configuracion_view.py
 │       ├── bandeja.py       Icono y menú de la bandeja del sistema
-│       └── icono.py         Icono de la app dibujado por código
+│       ├── icono.py         Icono de la app dibujado por código
+│       ├── comandos_view.py Tarjetas de comandos y botón de micrófono
+│       ├── comando_dialog.py  Formulario de comando y selector de apps instaladas
+│       └── burbuja.py       Burbuja flotante que reacciona a la voz
 └── requirements.txt
 ```

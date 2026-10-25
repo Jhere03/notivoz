@@ -18,6 +18,8 @@ class Clave(StrEnum):
     VOZ_VELOCIDAD = "voz_velocidad"
     VOZ_VOLUMEN = "voz_volumen"
     VOZ_NOMBRE = "voz_nombre"
+    ESCUCHA_ACTIVA = "escucha_activa"
+    MICROFONO = "microfono"
 
 
 _POR_DEFECTO: dict[Clave, Any] = {
@@ -29,6 +31,8 @@ _POR_DEFECTO: dict[Clave, Any] = {
     Clave.VOZ_VELOCIDAD: 0,  # SAPI: de -10 (lento) a 10 (rápido)
     Clave.VOZ_VOLUMEN: 100,  # 0 a 100
     Clave.VOZ_NOMBRE: VOZ_POR_DEFECTO,  # "" = solo la voz de Windows
+    Clave.ESCUCHA_ACTIVA: False,  # el micrófono solo se enciende si el usuario lo pide
+    Clave.MICROFONO: "",  # "" = el predeterminado de Windows
 }
 
 

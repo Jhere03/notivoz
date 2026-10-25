@@ -54,6 +54,8 @@ class Voz:
         self.volumen = 100  # 0 a 100
         self.voz_neural = VOZ_POR_DEFECTO  # VOZ_WINDOWS para no usar internet
         self._neural_pausada_hasta = 0.0
+        self._hablando = False
+        self._silencio_hasta = 0.0
         self._sapi = None
         self._cola: queue.Queue[str | None] = queue.Queue()
         self._hilo = threading.Thread(target=self._trabajar, name="Voz", daemon=True)
@@ -67,6 +69,16 @@ class Voz:
     def cerrar(self) -> None:
         self._cola.put(None)
 
+    @property
+    def hablando(self) -> bool:
+        """True solo mientras suena una frase."""
+        return self._hablando
+
+    def ocupada(self) -> bool:
+        """True mientras habla, tiene frases en cola o acaba de hablar (eco).
+        La escucha de comandos lo usa para no oír a Notivoz."""
+        return self._hablando or not self._cola.empty() or time.monotonic() < self._silencio_hasta
+
     # --- Hilo de voz ---------------------------------------------------------
 
     def _trabajar(self) -> None:
@@ -78,9 +90,13 @@ class Voz:
         comtypes.CoInitialize()
         try:
             while (texto := self._cola.get()) is not None:
-                if self._usar_neural() and self._hablar_neural(texto):
-                    continue
-                self._hablar_windows(texto)
+                self._hablando = True
+                try:
+                    if not (self._usar_neural() and self._hablar_neural(texto)):
+                        self._hablar_windows(texto)
+                finally:
+                    self._hablando = False
+                    self._silencio_hasta = time.monotonic() + 0.7
         finally:
             comtypes.CoUninitialize()
 

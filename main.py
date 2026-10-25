@@ -23,6 +23,7 @@ from app.services.voz import voz
 from app.ui.icono import icono_app
 from app.ui.main_window import MainWindow
 from app.ui.theme import QSS
+from app.ui.widgets import SinRuedaAccidental
 
 # Con un único servidor local por usuario se evita abrir Notivoz dos veces.
 _NOMBRE_INSTANCIA = f"{APP_NAME}-{getpass.getuser()}"
@@ -96,6 +97,9 @@ def main() -> int:
     app.setStyleSheet(QSS)
     # La app sigue viva en la bandeja aunque no haya ventanas visibles.
     app.setQuitOnLastWindowClosed(False)
+    # La rueda del mouse desplaza la página en vez de cambiar listas y deslizadores.
+    filtro_rueda = SinRuedaAccidental(app)
+    app.installEventFilter(filtro_rueda)
 
     if _avisar_instancia_abierta(mostrar=not desde_windows):
         log.info("Notivoz ya estaba abierto; se trae al frente esa ventana.")
