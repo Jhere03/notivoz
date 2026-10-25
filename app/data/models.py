@@ -78,3 +78,12 @@ class Nota(Base):
     actualizado_en: Mapped[datetime] = mapped_column(
         DateTime, default=datetime.now, onupdate=datetime.now
     )
+
+
+class Ajuste(Base):
+    """Preferencias de la app guardadas como clave → valor (JSON)."""
+
+    __tablename__ = "ajustes"
+
+    clave: Mapped[str] = mapped_column(String(60), primary_key=True)
+    valor: Mapped[str] = mapped_column(Text)
