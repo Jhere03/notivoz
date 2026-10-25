@@ -7,41 +7,27 @@ from PySide6.QtWidgets import (
     QLabel,
     QListWidget,
     QMainWindow,
+    QMessageBox,
     QStackedWidget,
     QVBoxLayout,
     QWidget,
 )
 
-from app.config import APP_NAME, APP_VERSION, db_path
-from app.services import ajustes
+from app.config import APP_NAME, APP_VERSION
+from app.services import ajustes, modelo_voz
+from app.services import comandos as servicio_comandos
 from app.services.ajustes import Clave
+from app.services.escucha import Escucha
 from app.services.saludo import texto_saludo
 from app.services.voz import voz
 from app.ui.bandeja import Bandeja
+from app.ui.burbuja import BurbujaVoz
+from app.ui.comandos_view import ComandosView
 from app.ui.configuracion_view import ConfiguracionView
 from app.ui.icono import icono_app
 from app.ui.notas_view import NotasView
 from app.ui.pendientes_view import PendientesView
 from app.ui.recordatorios import ProgramadorRecordatorios
-
-
-class ProximamenteView(QWidget):
-    """Marcador de lugar para las vistas de fases siguientes."""
-
-    def __init__(self, titulo: str, descripcion: str, parent=None):
-        super().__init__(parent)
-        encabezado = QLabel(titulo)
-        encabezado.setObjectName("TituloVista")
-        texto = QLabel(descripcion)
-        texto.setObjectName("Proximamente")
-        texto.setWordWrap(True)
-
-        layout = QVBoxLayout(self)
-        layout.setContentsMargins(28, 22, 28, 22)
-        layout.setSpacing(10)
-        layout.addWidget(encabezado)
-        layout.addWidget(texto)
-        layout.addStretch()
 
 
 class MainWindow(QMainWindow):
@@ -57,17 +43,11 @@ class MainWindow(QMainWindow):
         self.notas = NotasView()
         self.configuracion = ConfiguracionView()
         self.configuracion.probar_saludo.connect(self.leer_pendientes)
+        self.comandos = ComandosView()
         vistas = [
             ("Pendientes", self.pendientes),
             ("Notas", self.notas),
-            (
-                "Comandos de voz",
-                ProximamenteView(
-                    "Comandos de voz",
-                    "Aquí configurarás frases como «Modo chill» y las aplicaciones que abre "
-                    "cada una. Llega en las fases 4 y 5.",
-                ),
-            ),
+            ("Comandos de voz", self.comandos),
             ("Configuración", self.configuracion),
         ]
 
@@ -79,6 +59,8 @@ class MainWindow(QMainWindow):
             self.nav.addItem(nombre)
             self.stack.addWidget(vista)
         self.nav.currentRowChanged.connect(self.stack.setCurrentIndex)
+        # Salir de Configuración termina la prueba de micrófono, si estaba en curso.
+        self.nav.currentRowChanged.connect(lambda _: self.configuracion.detener_prueba_microfono())
         self.nav.setCurrentRow(0)
 
         logo = QLabel(APP_NAME)
@@ -87,6 +69,9 @@ class MainWindow(QMainWindow):
         lema.setObjectName("Lema")
         version = QLabel(f"v{APP_VERSION}")
         version.setObjectName("Version")
+        self.estado_escucha = QLabel()
+        self.estado_escucha.setObjectName("EstadoEscucha")
+        self.estado_escucha.setWordWrap(True)
 
         sidebar = QWidget()
         sidebar.setObjectName("Sidebar")
@@ -97,6 +82,7 @@ class MainWindow(QMainWindow):
         lateral.addWidget(logo)
         lateral.addWidget(lema)
         lateral.addWidget(self.nav, stretch=1)
+        lateral.addWidget(self.estado_escucha)
         lateral.addWidget(version)
 
         central = QWidget()
@@ -106,8 +92,6 @@ class MainWindow(QMainWindow):
         layout.addWidget(sidebar)
         layout.addWidget(self.stack, stretch=1)
         self.setCentralWidget(central)
-
-        self.statusBar().showMessage(f"Base de datos: {db_path()}")
 
         self.recordatorios = ProgramadorRecordatorios(self)
         self.recordatorios.notas_cambiaron.connect(self.notas.recargar)
@@ -120,6 +104,87 @@ class MainWindow(QMainWindow):
         self.bandeja.leer_pendientes.connect(self.leer_pendientes)
         self.bandeja.salir.connect(self.salir)
         self.bandeja.show()
+
+        # --- Comandos de voz ---
+        self.escucha = Escucha(self)
+        self.burbuja = BurbujaVoz(lambda: self.escucha.nivel)
+        self.escucha.estado_cambiado.connect(self._al_cambiar_estado_escucha)
+        self.escucha.activacion_oida.connect(self.burbuja.escuchar)
+        self.escucha.comando_detectado.connect(self.burbuja.ejecutar)
+        self.escucha.comando_detectado.connect(self.ejecutar_comando)
+        self._escucha_antes_de_prueba = False
+        self._probando_microfono = False
+        self.configuracion.prueba_microfono_cambiada.connect(self._pausar_por_prueba)
+        self.comandos.ejecutar.connect(self.ejecutar_comando)
+        self.comandos.escucha_pedida.connect(self._pedir_escucha)
+        self.comandos.comandos_cambiaron.connect(self._recargar_frases)
+        self.configuracion.escucha_config_cambiada.connect(self._reiniciar_escucha)
+        self.configuracion.modelo_instalado.connect(self._reiniciar_escucha)
+        self._configurar_escucha()
+        self._al_cambiar_estado_escucha("Micrófono apagado", False)
+        if ajustes.obtener(Clave.ESCUCHA_ACTIVA):
+            self.escucha.iniciar()
+
+    # --- Comandos de voz -----------------------------------------------------
+
+    def _configurar_escucha(self) -> None:
+        self.escucha.dispositivo = ajustes.obtener(Clave.MICROFONO) or None
+        self._recargar_frases()
+
+    def _recargar_frases(self) -> None:
+        self.escucha.set_frases(servicio_comandos.frases_activas())
+
+    def _pedir_escucha(self, activar: bool) -> None:
+        if activar and not modelo_voz.instalado():
+            self._al_cambiar_estado_escucha("Falta el modelo de voz", False)
+            QMessageBox.information(
+                self,
+                "Falta el modelo de voz",
+                "Primero descarga el modelo de voz en español en Configuración → Comandos de voz.",
+            )
+            self.nav.setCurrentRow(self.stack.indexOf(self.configuracion))
+            return
+        ajustes.guardar(Clave.ESCUCHA_ACTIVA, activar)
+        if activar:
+            self.escucha.iniciar()
+        else:
+            self.escucha.detener()
+
+    def _reiniciar_escucha(self) -> None:
+        estaba_activa = self.escucha.activa
+        self.escucha.detener()
+        self._configurar_escucha()
+        if estaba_activa or ajustes.obtener(Clave.ESCUCHA_ACTIVA):
+            self.escucha.iniciar()
+
+    def _pausar_por_prueba(self, probando: bool) -> None:
+        """Durante la prueba de micrófono la escucha se pausa: el eco de tu voz
+        no debe disparar comandos."""
+        self._probando_microfono = probando
+        if probando:
+            self._escucha_antes_de_prueba = self.escucha.activa
+            self.escucha.detener()
+            self._al_cambiar_estado_escucha("En pausa (probando micrófono)", False)
+        elif self._escucha_antes_de_prueba:
+            self._escucha_antes_de_prueba = False
+            self.escucha.iniciar()
+        else:
+            self._al_cambiar_estado_escucha("Micrófono apagado", False)
+
+    def _al_cambiar_estado_escucha(self, texto: str, escuchando: bool) -> None:
+        if self._probando_microfono and not escuchando:
+            # El aviso «Micrófono apagado» de la escucha llega tarde: mantener la pausa.
+            texto = "En pausa (probando micrófono)"
+        self.comandos.set_estado_escucha(texto, escuchando)
+        self.estado_escucha.setText(("🎙  " if escuchando else "🔇  ") + texto)
+        self.bandeja.setToolTip(f"{APP_NAME} — {texto}")
+
+    def ejecutar_comando(self, comando_id: int) -> None:
+        comando = servicio_comandos.obtener(comando_id)
+        if comando is None:
+            return
+        self.statusBar().showMessage(f"Ejecutando «{comando.frase}»…", 8000)
+        servicio_comandos.ejecutar(comando_id)
 
     # --- Acciones generales --------------------------------------------------
 
@@ -142,6 +207,8 @@ class MainWindow(QMainWindow):
 
     def salir(self) -> None:
         self._saliendo = True
+        self.configuracion.detener_prueba_microfono()
+        self.escucha.detener()
         self.bandeja.hide()
         QApplication.quit()
 
@@ -152,6 +219,7 @@ class MainWindow(QMainWindow):
             return
         # Cerrar la ventana solo la oculta: los recordatorios siguen funcionando.
         event.ignore()
+        self.configuracion.detener_prueba_microfono()
         self.hide()
         if not ajustes.obtener(Clave.AVISO_BANDEJA_MOSTRADO):
             self.bandeja.avisar(

@@ -304,6 +304,49 @@ QPushButton#AlertaCerrar:hover {{
     color: {TEXTO};
 }}
 
+/* Comandos */
+#ChipApp {{
+    background: {SUPERFICIE_ALTA};
+    border: 1px solid {BORDE};
+    border-radius: 10px;
+    padding: 2px 9px;
+    font-size: 9pt;
+}}
+#ChipIcono {{
+    background: transparent;
+}}
+#EstadoEscucha {{
+    background: transparent;
+    color: {TEXTO_SUAVE};
+    font-size: 9pt;
+    padding: 8px 18px 0 18px;
+}}
+QProgressBar {{
+    background: {SUPERFICIE_ALTA};
+    border: 1px solid {BORDE};
+    border-radius: 5px;
+    height: 10px;
+    text-align: center;
+    color: transparent;
+}}
+QProgressBar::chunk {{
+    background: {ACENTO};
+    border-radius: 4px;
+}}
+QListWidget {{
+    background: {SUPERFICIE};
+    border: 1px solid {BORDE};
+    border-radius: 6px;
+    outline: none;
+}}
+QListWidget::item {{
+    padding: 6px;
+}}
+QListWidget::item:selected {{
+    background: #2e2a4d;
+    color: {TEXTO};
+}}
+
 /* Configuración */
 #Seccion {{
     background: {SUPERFICIE};

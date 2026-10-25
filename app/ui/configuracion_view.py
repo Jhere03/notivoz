@@ -1,8 +1,8 @@
 """Vista de configuración: inicio con Windows, bandeja y voz."""
 
-import os
+import threading
 
-from PySide6.QtCore import Qt, Signal
+from PySide6.QtCore import Qt, QTimer, Signal
 from PySide6.QtWidgets import (
     QCheckBox,
     QComboBox,
@@ -11,6 +11,7 @@ from PySide6.QtWidgets import (
     QLabel,
     QLineEdit,
     QMessageBox,
+    QProgressBar,
     QPushButton,
     QScrollArea,
     QSizePolicy,
@@ -19,9 +20,10 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from app.config import data_dir
-from app.services import ajustes, inicio_windows
+from app.services import ajustes, inicio_windows, modelo_voz
 from app.services.ajustes import Clave
+from app.services.escucha import NOMBRE_ACTIVACION, dispositivos_entrada
+from app.services.microfono import PruebaMicrofono
 from app.services.voz import VOCES_NEURALES, VOZ_WINDOWS, voz
 
 
@@ -53,6 +55,13 @@ def _ayuda(texto: str) -> QLabel:
 
 class ConfiguracionView(QWidget):
     probar_saludo = Signal()
+    # Cambió el micrófono o la palabra de activación: la escucha debe reajustarse.
+    escucha_config_cambiada = Signal()
+    modelo_instalado = Signal()
+    # True al empezar la prueba de micrófono (pausar la escucha), False al terminar.
+    prueba_microfono_cambiada = Signal(bool)
+    _descarga_progreso = Signal(int, int)
+    _descarga_terminada = Signal(str)  # mensaje de error, o "" si fue bien
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -139,23 +148,80 @@ class ConfiguracionView(QWidget):
         fila_probar.addStretch()
         l_voz.addLayout(fila_probar)
 
-        # --- Datos -----------------------------------------------------------
-        datos, l_datos = _seccion(
-            "Datos", f"Tus tareas, clientes y notas se guardan en:\n{data_dir()}"
+        # --- Comandos de voz --------------------------------------------------
+        seccion_escucha, l_escucha = _seccion("Comandos de voz")
+        self.estado_modelo = QLabel()
+        self.estado_modelo.setWordWrap(True)
+        self.btn_descargar = QPushButton(
+            f"Descargar modelo de voz en español (≈{modelo_voz.TAMANO_APROX_MB} MB)"
         )
-        abrir = QPushButton("Abrir carpeta de datos")
-        abrir.clicked.connect(lambda: os.startfile(data_dir()))
-        fila_datos = QHBoxLayout()
-        fila_datos.addWidget(abrir)
-        fila_datos.addStretch()
-        l_datos.addLayout(fila_datos)
+        self.btn_descargar.setObjectName("Secundario")
+        self.btn_descargar.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.btn_descargar.clicked.connect(self._descargar_modelo)
+        self.progreso = QProgressBar()
+        self.progreso.hide()
+        fila_descarga = QHBoxLayout()
+        fila_descarga.addWidget(self.btn_descargar)
+        fila_descarga.addWidget(self.progreso, stretch=1)
+
+        como_usar = QLabel(
+            f"Cada comando empieza siempre con la palabra «{NOMBRE_ACTIVACION}». "
+            f"Di, por ejemplo, «{NOMBRE_ACTIVACION}, y el comando configurado», o di solo «{NOMBRE_ACTIVACION}», "
+            "espera el pitido y di el comando en los 3 segundos siguientes."
+            f"Sin «{NOMBRE_ACTIVACION}» no se ejecuta nada, así una conversación normal nunca abre aplicaciones."
+        )
+        como_usar.setWordWrap(True)
+
+        self.btn_probar_mic = QPushButton("🎙  Probar micrófono")
+        self.btn_probar_mic.setObjectName("Secundario")
+        self.btn_probar_mic.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.btn_probar_mic.setCheckable(True)
+        self.btn_probar_mic.toggled.connect(self._alternar_prueba_mic)
+        self.nivel_mic = QProgressBar()
+        self.nivel_mic.setRange(0, 100)
+        self.nivel_mic.hide()
+        self.ayuda_prueba = _ayuda(
+            "Habla: oirás tu voz con 1 segundo de retraso. Usa audífonos para evitar eco."
+        )
+        self.ayuda_prueba.hide()
+        fila_prueba = QHBoxLayout()
+        fila_prueba.addWidget(self.btn_probar_mic)
+        fila_prueba.addWidget(self.nivel_mic, stretch=1)
+        self._prueba_mic = PruebaMicrofono()
+        self._reloj_nivel = QTimer(self, interval=50)
+        self._reloj_nivel.timeout.connect(
+            lambda: self.nivel_mic.setValue(int(self._prueba_mic.nivel * 100))
+        )
+
+        self.microfono = QComboBox()
+        self.microfono.addItem("Micrófono predeterminado de Windows", "")
+        for nombre in dispositivos_entrada():
+            self.microfono.addItem(nombre, nombre)
+        self.microfono.setCurrentIndex(max(self.microfono.findData(ajustes.obtener(Clave.MICROFONO)), 0))
+        self.microfono.currentIndexChanged.connect(self._cambiar_microfono)
+
+        l_escucha.addWidget(self.estado_modelo)
+        l_escucha.addLayout(fila_descarga)
+        l_escucha.addWidget(como_usar)
+        l_escucha.addWidget(self._fila("Micrófono", self.microfono))
+        l_escucha.addLayout(fila_prueba)
+        l_escucha.addWidget(self.ayuda_prueba)
+        l_escucha.addWidget(
+            _ayuda(
+                "El reconocimiento de voz funciona sin internet: el audio del micrófono nunca sale "
+                "de tu PC. El micrófono se enciende o apaga desde la sección «Comandos de voz»."
+            )
+        )
+        self._descarga_progreso.connect(self._al_progresar_descarga)
+        self._descarga_terminada.connect(self._al_terminar_descarga)
+        self._actualizar_estado_modelo()
 
         contenido = QWidget()
         contenido.setObjectName("ListaNotas")
         columna = QVBoxLayout(contenido)
         columna.setContentsMargins(0, 0, 6, 0)
         columna.setSpacing(14)
-        for marco in (inicio, bandeja, seccion_voz, datos):
+        for marco in (inicio, bandeja, seccion_voz, seccion_escucha):
             marco.setMaximumWidth(760)
             columna.addWidget(marco)
         columna.addStretch()
@@ -228,6 +294,105 @@ class ConfiguracionView(QWidget):
             self.con_windows.blockSignals(True)
             self.con_windows.setChecked(inicio_windows.esta_activo())
             self.con_windows.blockSignals(False)
+
+    # --- Comandos de voz -------------------------------------------------------
+
+    def _actualizar_estado_modelo(self) -> None:
+        if modelo_voz.instalado():
+            self.estado_modelo.setText("✓  Modelo de voz en español instalado.")
+            self.btn_descargar.hide()
+        else:
+            self.estado_modelo.setText(
+                "Para reconocer comandos de voz, Notivoz necesita descargar una sola vez "
+                "el modelo de voz en español de Vosk."
+            )
+            self.btn_descargar.show()
+
+    def _descargar_modelo(self) -> None:
+        self.btn_descargar.setEnabled(False)
+        self.btn_descargar.setText("Descargando…")
+        self.progreso.setValue(0)
+        self.progreso.show()
+
+        def trabajar() -> None:
+            try:
+                modelo_voz.descargar(lambda leidos, total: self._descarga_progreso.emit(leidos, total))
+                self._descarga_terminada.emit("")
+            except Exception as error:
+                self._descarga_terminada.emit(str(error) or error.__class__.__name__)
+
+        threading.Thread(target=trabajar, name="DescargaModelo", daemon=True).start()
+
+    def _al_progresar_descarga(self, leidos: int, total: int) -> None:
+        if total:
+            self.progreso.setValue(int(leidos * 100 / total))
+
+    def _al_terminar_descarga(self, error: str) -> None:
+        self.progreso.hide()
+        self.btn_descargar.setEnabled(True)
+        self.btn_descargar.setText(
+            f"Descargar modelo de voz en español (≈{modelo_voz.TAMANO_APROX_MB} MB)"
+        )
+        if error:
+            QMessageBox.warning(
+                self, "No se pudo descargar", f"Revisa tu conexión a internet e inténtalo de nuevo.\n\n{error}"
+            )
+        else:
+            self.modelo_instalado.emit()
+        self._actualizar_estado_modelo()
+
+    def _cambiar_microfono(self) -> None:
+        self.detener_prueba_microfono()
+        ajustes.guardar(Clave.MICROFONO, self.microfono.currentData())
+        self.escucha_config_cambiada.emit()
+
+    def _alternar_prueba_mic(self, probar: bool) -> None:
+        if not probar:
+            self.detener_prueba_microfono()
+            return
+        # La escucha de comandos se pausa para que el eco no dispare nada.
+        self.prueba_microfono_cambiada.emit(True)
+        try:
+            self._prueba_mic.iniciar(self.microfono.currentData() or None)
+        except Exception as error:
+            self.prueba_microfono_cambiada.emit(False)
+            self.btn_probar_mic.blockSignals(True)
+            self.btn_probar_mic.setChecked(False)
+            self.btn_probar_mic.blockSignals(False)
+            QMessageBox.warning(
+                self, "No se pudo probar", f"No se pudo usar el micrófono o los parlantes:\n{error}"
+            )
+            return
+        self.btn_probar_mic.setText("■  Terminar prueba")
+        self.btn_probar_mic.setObjectName("Primario")
+        self._repolir(self.btn_probar_mic)
+        self.nivel_mic.show()
+        self.ayuda_prueba.show()
+        self._reloj_nivel.start()
+
+    def detener_prueba_microfono(self) -> None:
+        """Termina la prueba (si está en curso). También se llama al cambiar
+        de vista o cerrar la app."""
+        if not self._prueba_mic.activa:
+            return
+        self._prueba_mic.detener()
+        self._reloj_nivel.stop()
+        self.nivel_mic.setValue(0)
+        self.nivel_mic.hide()
+        self.ayuda_prueba.hide()
+        self.btn_probar_mic.blockSignals(True)
+        self.btn_probar_mic.setChecked(False)
+        self.btn_probar_mic.blockSignals(False)
+        self.btn_probar_mic.setText("🎙  Probar micrófono")
+        self.btn_probar_mic.setObjectName("Secundario")
+        self._repolir(self.btn_probar_mic)
+        self.prueba_microfono_cambiada.emit(False)
+
+    @staticmethod
+    def _repolir(widget: QWidget) -> None:
+        """Reaplica la hoja de estilos tras cambiar el objectName."""
+        widget.style().unpolish(widget)
+        widget.style().polish(widget)
 
     def _probar(self) -> None:
         ajustes.guardar(Clave.NOMBRE, self.nombre.text().strip())
