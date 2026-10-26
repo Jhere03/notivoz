@@ -76,7 +76,11 @@ En VS Code basta con abrir la carpeta y pulsar **F5**. La configuración «Notiv
 
 - Di «Notivoz» y pide lo que quieras con tus palabras: «recuérdame pagar el internet el viernes a las 9», «¿qué tengo pendiente con ACME?», «pasa a realizado lo del contrato», «abre Spotify», «activa el modo relax».
 - Tu voz se convierte en texto **en tu equipo** con Whisper (sin internet). Solo el texto del pedido va a Claude Haiku (Anthropic), que decide qué hacer con las herramientas de Notivoz.
-- Conversación fluida: después de cada respuesta tienes unos segundos para seguir hablando sin repetir «Notivoz». También puedes hablarle encima mientras responde: se calla y toma lo que dijiste (cancelación de eco: resta su propia voz de lo que capta el micrófono). «Notivoz», «espera» o «silencio» también lo callan.
+- Conversación: si Notivoz te pregunta algo, contéstale sin repetir «Notivoz». Si terminó lo que pediste, te escucha solo un par de segundos más: un «gracias» u «ok» se responde con una sonrisa en la nube (sin hablar), y lo que no sea para ella lo ignora. Después hay que volver a decir «Notivoz».
+- Puedes hablarle encima mientras responde: se calla y toma lo que dijiste (cancelación de eco). Con parlantes, si no logra cancelar bien el eco, solo se calla con «Notivoz», «espera» o «silencio», para no cortarse sola.
+- Junto a la burbuja aparece una nube con lo que dice Notivoz.
+- Actúa sin pedir confirmación cuando te entendió (crear, editar, recordatorios, eliminar); solo pregunta si algo no quedó claro. Entiende nombres que suenan parecido («Bento» → tu cliente «Dento», «F» → «EFE»).
+- Puede leer toda la app (correos de tareas realizadas, rutinas, configuración) y abrir su ventana: «Notivoz, ábrete en mis notas».
 - Si haces pausas para pensar («…y», «o sea…», «este…»), Notivoz espera a que termines antes de responder.
 - Solo responde sobre Notivoz; cualquier otra pregunta la rechaza.
 - **Puesta en marcha** (Configuración → Asistente con IA):
@@ -87,11 +91,15 @@ En VS Code basta con abrir la carpeta y pulsar **F5**. La configuración «Notiv
   - Notivoz no trae ninguna clave: cada persona usa la suya, y nunca se guarda en archivos, en la base de datos ni en el registro de la app.
   - Las peticiones solo van a `api.anthropic.com` (fijado en el código).
   - La IA solo puede usar una lista cerrada de acciones de Notivoz, y cada dato se valida otra vez antes de ejecutarse.
-  - **Eliminar siempre requiere tu «sí»**: Notivoz pregunta «¿Seguro que elimino…?» y basta con «sí», «dale» u «ok». Puedes eliminar varias cosas de una vez («elimina todas mis tareas»). Un «no» nunca elimina, y la IA no puede confirmar por sí sola.
+  - **Eliminar es inmediato, pero solo si tú lo pediste** en ese mismo pedido («elimina», «borra»…): un texto guardado en una nota nunca puede ordenar borrar. Lo eliminado se recupera unos minutos con el botón «Deshacer» o diciendo «deshaz eso».
   - Hay un máximo de cambios por pedido. Solo abre apps del menú Inicio y sin argumentos: puede abrir una consola, pero nunca escribe ni ejecuta nada en ella. Nunca abre desinstaladores ni el editor del registro.
   - Al cerrar una app comprueba que de verdad se cerró; forzar el cierre (podría perder cambios sin guardar) solo lo hace si tú lo confirmas.
   - El modelo de Whisper se descarga de una versión fija y se verifica con su huella SHA-256.
 - **Límite de uso (beta):** 1 USD al mes, fijo. Al llegar, Notivoz deja de usar la IA hasta el mes siguiente; los comandos de voz siguen funcionando.
+
+### Chateemos
+
+- Escríbele a Notivoz lo mismo que le dirías por voz. Es el mismo asistente (mismas acciones, límites y seguridad) y comparte el límite de uso mensual.
 
 ### Apariencia
 

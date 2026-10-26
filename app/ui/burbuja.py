@@ -3,17 +3,21 @@
 - Escuchando: crece y brilla con el volumen de tu voz. Si en 5 segundos no
   llega un comando, desaparece.
 - Ejecutando: un anillo gira mientras se abren las aplicaciones.
-- Hablando: palpita mientras Notivoz dice la respuesta y luego se desvanece.
+- Hablando: palpita mientras Notivoz dice la respuesta. Si la conversación
+  sigue (puedes contestar sin decir «Notivoz»), vuelve a escuchar; si no, se
+  desvanece.
+- Nube: a su lado se lee lo que dice Notivoz (o un emoji cuando le agradeces).
 """
 
 import math
+import random
 import time
 from collections.abc import Callable
 from enum import Enum, auto
 
-from PySide6.QtCore import QEasingCurve, QPointF, QPropertyAnimation, QRectF, Qt, QTimer
-from PySide6.QtGui import QColor, QGuiApplication, QPainter, QPen, QRadialGradient
-from PySide6.QtWidgets import QWidget
+from PySide6.QtCore import QEasingCurve, QPointF, QPropertyAnimation, QRect, QRectF, Qt, QTimer
+from PySide6.QtGui import QColor, QFont, QFontMetrics, QGuiApplication, QPainter, QPen, QRadialGradient
+from PySide6.QtWidgets import QLabel, QVBoxLayout, QWidget
 
 from app.services.voz import voz
 
@@ -22,6 +26,10 @@ _RADIO = 21  # burbuja en reposo
 _MARGEN_DERECHO = 12
 _ESPERA_COMANDO_MS = 5000
 _MAXIMO_EJECUCION = 45  # segundos: por si algo falla, nunca queda pegada
+# Al terminar de hablar, un instante escuchando por si la conversación sigue.
+_GRACIA_TRAS_HABLAR_MS = 1200
+_ANCHO_NUBE = 340
+_LECTURA_TRAS_HABLAR_MS = 1500  # la nube queda un poco más tras la última palabra
 _COLOR = QColor("#7c5cff")
 _COLOR_CLARO = QColor("#a996ff")
 
@@ -40,6 +48,71 @@ _BANDERAS_FLOTANTE = (
     | Qt.WindowType.WindowTransparentForInput
     | Qt.WindowType.WindowDoesNotAcceptFocus
 )
+
+
+_GESTOS = ("😊", "👍", "🙌", "✨", "😄", "👌", "💜", "🙂")
+
+
+class _Nube(QWidget):
+    """Globo de texto a la izquierda de la burbuja, con lo que dice Notivoz."""
+
+    def __init__(self) -> None:
+        super().__init__(None, _BANDERAS_FLOTANTE)
+        self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
+        self.setAttribute(Qt.WidgetAttribute.WA_ShowWithoutActivating)
+        self._texto = QLabel()
+        self._texto.setWordWrap(True)
+        self._texto.setTextFormat(Qt.TextFormat.PlainText)  # nunca interpretar HTML
+        self._texto.setStyleSheet("color: white; background: transparent;")
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(16, 12, 16, 12)
+        layout.addWidget(self._texto)
+        self._ocultar = QTimer(self, singleShot=True)
+        self._ocultar.timeout.connect(self._desvanecer)
+        self._fundido = QPropertyAnimation(self, b"windowOpacity", self)
+        self._fundido.finished.connect(lambda: self.hide() if self._fundido.endValue() == 0.0 else None)
+
+    def mostrar(self, texto: str, burbuja: QRect, emoji: bool = False) -> None:
+        fuente = QFont("Segoe UI Emoji" if emoji else "Segoe UI", 26 if emoji else 10)
+        self._texto.setFont(fuente)
+        self._texto.setText(texto)
+        # Ancho justo para el texto (una frase corta no deja una nube enorme).
+        ancho = QFontMetrics(fuente).horizontalAdvance(texto) + 6
+        self._texto.setFixedWidth(min(ancho, _ANCHO_NUBE - 32))
+        self.adjustSize()
+        self.colocar(burbuja)
+        self._fundido.stop()
+        self.setWindowOpacity(1.0)
+        self.show()
+        self.raise_()
+        # Tiempo para leerlo: unos 15 caracteres por segundo, mínimo 3 s.
+        self._ocultar.start(2500 if emoji else int(max(3.0, len(texto) / 15 + 2) * 1000))
+
+    def colocar(self, burbuja: QRect) -> None:
+        self.move(burbuja.left() - self.width() + 14, burbuja.center().y() - self.height() // 2)
+
+    def ocultar_pronto(self) -> None:
+        if self.isVisible() and self._ocultar.remainingTime() > 1500:
+            self._ocultar.start(1500)
+
+    def _desvanecer(self) -> None:
+        if voz().ocupada():
+            # Sigue hablando: la nube espera (y luego queda un momento para leerla).
+            self._ocultar.start(_LECTURA_TRAS_HABLAR_MS)
+            return
+        self._fundido.stop()
+        self._fundido.setDuration(400)
+        self._fundido.setStartValue(self.windowOpacity())
+        self._fundido.setEndValue(0.0)
+        self._fundido.start()
+
+    def paintEvent(self, _event) -> None:
+        p = QPainter(self)
+        p.setRenderHint(QPainter.RenderHint.Antialiasing)
+        p.setPen(QPen(QColor(124, 92, 255, 150), 1.5))
+        p.setBrush(QColor(28, 31, 38, 238))
+        p.drawRoundedRect(QRectF(self.rect()).adjusted(1, 1, -1, -1), 14, 14)
+        p.end()
 
 
 class BurbujaVoz(QWidget):
@@ -63,16 +136,34 @@ class BurbujaVoz(QWidget):
         self._fundido = QPropertyAnimation(self, b"windowOpacity", self)
         self._fundido.setEasingCurve(QEasingCurve.Type.OutCubic)
         self._fundido.finished.connect(self._al_terminar_fundido)
+        self._nube = _Nube()
 
     # --- API ---------------------------------------------------------------
 
-    def escuchar(self) -> None:
-        """Se dijo «Notivoz»: aparecer y esperar el comando unos segundos."""
-        if self._estado in (_Estado.EJECUTANDO, _Estado.HABLANDO):
+    def escuchar(self, milisegundos: int = _ESPERA_COMANDO_MS) -> None:
+        """Te está escuchando (dijiste «Notivoz» o la conversación sigue):
+        aparecer y esperar unos segundos."""
+        if self._estado == _Estado.EJECUTANDO or (self._estado == _Estado.HABLANDO and voz().ocupada()):
             return
         self._estado = _Estado.ESCUCHANDO
-        self._espera_comando.start()
+        self._espera_comando.start(max(milisegundos, self._espera_comando.remainingTime()))
         self._aparecer()
+
+    def decir(self, texto: str) -> None:
+        """Muestra en la nube lo que dice Notivoz (no gasta nada: es el mismo texto
+        que se lee en voz alta). La burbuja acompaña hasta que termine de hablar."""
+        self._espera_comando.stop()
+        self._estado = _Estado.EJECUTANDO  # pasa a «hablando» cuando empiece a sonar
+        self._limite_ejecucion = time.monotonic() + _MAXIMO_EJECUCION
+        self._aparecer()
+        self._nube.mostrar(texto, self.geometry())
+
+    def gesto(self) -> None:
+        """Una sonrisa o un 👍 sin hablar (le agradeciste o cerraste el pedido)."""
+        self._aparecer()
+        self._estado = _Estado.ESCUCHANDO
+        self._espera_comando.start(2500)
+        self._nube.mostrar(random.choice(_GESTOS), self.geometry(), emoji=True)
 
     def ejecutar(self) -> None:
         """Se reconoció un comando: girar hasta que Notivoz responda."""
@@ -93,6 +184,8 @@ class BurbujaVoz(QWidget):
             pantalla.right() - _TAMANO - _MARGEN_DERECHO,
             pantalla.center().y() - _TAMANO // 2,
         )
+        if self._nube.isVisible():
+            self._nube.colocar(self.geometry())
         if not self.isVisible() or self._fundido.endValue() == 0.0:
             self._fundido.stop()
             if not self.isVisible():
@@ -107,6 +200,7 @@ class BurbujaVoz(QWidget):
 
     def _desaparecer(self) -> None:
         self._estado = _Estado.OCULTA
+        self._nube.ocultar_pronto()
         self._espera_comando.stop()
         self._fundido.stop()
         self._fundido.setDuration(450)
@@ -129,6 +223,10 @@ class BurbujaVoz(QWidget):
         match self._estado:
             case _Estado.ESCUCHANDO:
                 objetivo = self._nivel_voz()
+                if voz().hablando:
+                    # Notivoz empezó a hablar (respuesta): acompañarlo hasta el final.
+                    self._espera_comando.stop()
+                    self._estado = _Estado.HABLANDO
             case _Estado.EJECUTANDO:
                 objetivo = 0.12 + 0.06 * math.sin(self._fase * 4)
                 if voz().hablando:
@@ -139,7 +237,10 @@ class BurbujaVoz(QWidget):
                 # Palpitar al ritmo aproximado del habla.
                 objetivo = 0.45 + 0.35 * abs(math.sin(self._fase * 9)) * abs(math.sin(self._fase * 2.3))
                 if not voz().ocupada():
-                    self._desaparecer()
+                    # Un instante escuchando: si la conversación sigue, la escucha
+                    # avisa y se alarga; si no, se desvanece sola.
+                    self._estado = _Estado.ESCUCHANDO
+                    self._espera_comando.start(_GRACIA_TRAS_HABLAR_MS)
             case _:
                 objetivo = 0.0
         self._nivel += (objetivo - self._nivel) * 0.3

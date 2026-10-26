@@ -6,14 +6,12 @@ unos datos, y este módulo decide si se hace. Reglas de seguridad:
 - Lista cerrada de herramientas: nada de comandos, rutas, archivos ni web.
 - Todo dato que llega de la IA se vuelve a validar aquí (tipos, largos,
   fechas, ids): nunca se confía en que respete el esquema.
-- Eliminar nunca se hace solo con el pedido de la IA: queda pendiente hasta que
-  el usuario responde que sí. Las respuestas comunes («sí», «dale», «ok»…) las
-  reconoce Notivoz al instante; si la respuesta es otra, la IA la interpreta,
-  pero un «no» nunca elimina y la IA no puede confirmar una eliminación que no
-  se le preguntó al usuario justo antes.
-- Sin acciones masivas: cada herramienta actúa sobre un solo elemento, y hay un
-  máximo de cambios por turno (si un texto malicioso guardado en una nota
-  intentara manipular a la IA, el daño posible queda acotado).
+- Eliminar es inmediato (sin preguntas), pero solo si el usuario lo pidió con
+  sus palabras en ese mismo pedido («elimina», «borra», «quita»…): un texto
+  malicioso guardado en una nota no puede ordenar borrar nada. Además, lo
+  eliminado se puede recuperar unos minutos («deshaz eso» o el botón Deshacer).
+- Hay un máximo de cambios por pedido (si un texto malicioso intentara
+  manipular a la IA, el daño posible queda acotado).
 - Abrir apps: solo las instaladas que aparecen en el menú Inicio, sin
   argumentos (abrir una consola no ejecuta nada en ella), y nunca
   desinstaladores, el editor del registro u otras herramientas de
@@ -27,22 +25,28 @@ import json
 import logging
 import os
 import sys
+import threading
 import time
 import unicodedata
 from collections.abc import Callable
+from difflib import SequenceMatcher
 from dataclasses import dataclass, field
 from datetime import date, datetime, timedelta
 from typing import Any
 
 from app.data.models import Estado, Importancia
+from app.services import ajustes
 from app.services import clientes as servicio_clientes
 from app.services import comandos as servicio_comandos
 from app.services import lanzador
 from app.services import notas as servicio_notas
 from app.services import pendientes as servicio_pendientes
+from app.services import rutinas as servicio_rutinas
+from app.services.ajustes import Clave
 from app.services.notas import DatosNota
 from app.services.pendientes import DatosPendiente, FiltroPendientes
 from app.services.personalidad import Frases
+from app.services.redaccion import RedactorCorreo
 
 log = logging.getLogger(__name__)
 
@@ -59,6 +63,8 @@ _LARGO_NOMBRE = 120
 _LARGO_BUSQUEDA = 100
 
 _IMPORTANCIAS = {i.etiqueta: i for i in Importancia}
+# Secciones de la ventana que la IA puede abrir.
+SECCIONES = ("Mis tareas", "Notas", "Comandos de voz", "Rutinas", "Chateemos", "Configuración")
 _ESTADOS = {e.value: e for e in Estado}
 
 # Apps que nunca se abren por voz: consolas, scripts y herramientas del sistema.
@@ -85,6 +91,94 @@ def normalizar(texto: str) -> str:
     """Minúsculas, sin tildes ni espacios de más: para comparar nombres y títulos."""
     sin_tildes = unicodedata.normalize("NFKD", texto).encode("ascii", "ignore").decode()
     return " ".join(sin_tildes.lower().split())
+
+
+# --- Nombres que suenan parecido -----------------------------------------------------
+#
+# Whisper puede escribir «Bento» cuando dijiste «Dento», o «F» cuando dijiste
+# «EFE». Se compara cómo suenan, también deletreando siglas (EFE = «efe»).
+
+_LETRAS = {
+    "a": "a", "b": "be", "c": "ce", "d": "de", "e": "e", "f": "efe", "g": "ge", "h": "hache",
+    "i": "i", "j": "jota", "k": "ka", "l": "ele", "m": "eme", "n": "ene", "o": "o", "p": "pe",
+    "q": "cu", "r": "erre", "s": "ese", "t": "te", "u": "u", "v": "uve", "w": "doble uve",
+    "x": "equis", "y": "ye", "z": "zeta",
+}
+_PARECIDO_MINIMO = 0.75
+
+
+def _formas(texto: str) -> set[str]:
+    """Cómo puede sonar un nombre: tal cual y, si es corto, deletreado."""
+    normal = normalizar(texto)
+    formas = {normal.replace(" ", "")}
+    if 0 < len(normal.replace(" ", "")) <= 4 and normal.replace(" ", "").isalpha():
+        formas.add("".join(_LETRAS.get(c, c) for c in normal.replace(" ", "")).replace(" ", ""))
+    return formas
+
+
+def _parecido(dicho: str, nombre: str) -> float:
+    puntaje = max(SequenceMatcher(None, x, y).ratio() for x in _formas(dicho) for y in _formas(nombre))
+    # «Beta» para «Beta SAC»: dijo una palabra completa del nombre.
+    palabras = normalizar(nombre).split()
+    if len(normalizar(dicho)) >= 3 and normalizar(dicho) in palabras:
+        puntaje = max(puntaje, 0.9)
+    return puntaje
+
+
+def cliente_parecido(nombre: str, clientes: list):
+    """El cliente que coincide o suena casi igual; None si no hay uno claro."""
+    puntajes = sorted(((_parecido(nombre, c.nombre), c) for c in clientes), key=lambda p: -p[0])
+    if not puntajes or puntajes[0][0] < _PARECIDO_MINIMO:
+        return None
+    if len(puntajes) > 1 and puntajes[1][0] >= puntajes[0][0] - 0.05 and puntajes[0][0] < 1.0:
+        nombres = ", ".join(c.nombre for _, c in puntajes[:3])
+        raise ErrorHerramienta(f"«{nombre}» se parece a varios clientes ({nombres}). Pregunta cuál.")
+    return puntajes[0][1]
+
+
+def _corto(texto: str, largo: int = 80) -> str:
+    texto = " ".join(texto.split())
+    return texto if len(texto) <= largo else texto[: largo - 1] + "…"
+
+
+def resumen_de_datos() -> str:
+    """Lo esencial de la app en cada pedido, para que la IA actúe sin buscar
+    primero (una llamada menos). Va en el mensaje, no en las instrucciones fijas."""
+    lineas = []
+    clientes = servicio_clientes.listar()
+    lineas.append("Clientes: " + (", ".join(c.nombre for c in clientes[:60]) or "ninguno"))
+    tareas = servicio_pendientes.listar()
+    activas = [p for p in tareas if p.estado != Estado.REALIZADO]
+    hechas = sorted(
+        (p for p in tareas if p.estado == Estado.REALIZADO and p.fecha_realizado),
+        key=lambda p: p.fecha_realizado,
+        reverse=True,
+    )
+    lineas.append(f"Tareas sin terminar ({len(activas)}):")
+    for p in activas[:40]:
+        cliente = p.cliente.nombre if p.cliente else "sin cliente"
+        lineas.append(
+            f"- [id {p.id}] {_corto(p.titulo)} · {cliente} · {Importancia(p.importancia).etiqueta} · {p.estado}"
+            f" · ingreso {p.fecha_ingreso:%Y-%m-%d}"
+        )
+    if hechas:
+        lineas.append("Terminadas recientemente:")
+        for p in hechas[:5]:
+            cliente = p.cliente.nombre if p.cliente else "sin cliente"
+            lineas.append(f"- [id {p.id}] {_corto(p.titulo)} · {cliente} · terminada {p.fecha_realizado:%d/%m %H:%M}")
+    notas = servicio_notas.listar()
+    proximos = [n for n in notas if servicio_notas.es_proxima(n)]
+    if proximos:
+        lineas.append("Recordatorios próximos:")
+        for n in proximos[:15]:
+            lineas.append(f"- [id {n.id}] {_corto(n.titulo)} · {n.recordatorio:{_FORMATO_FECHA_HORA}}")
+    otras = [n for n in notas if not servicio_notas.es_proxima(n)]
+    if otras:
+        lineas.append(f"Otras notas ({len(otras)}): " + "; ".join(f"[id {n.id}] {_corto(n.titulo, 50)}" for n in otras[:8]))
+    modos = servicio_comandos.listar()
+    if modos:
+        lineas.append("Modos: " + "; ".join(f"[id {c.id}] {c.frase}" for c in modos[:20]))
+    return "\n".join(lineas)
 
 
 # --- Validación de lo que manda la IA --------------------------------------------
@@ -120,7 +214,23 @@ def _opcion(entrada: dict, clave: str, opciones: dict) -> Any:
     return opciones[valor]
 
 
-def _fecha_hora(entrada: dict, clave: str) -> datetime | None:
+def _fecha(entrada: dict, clave: str) -> date | None:
+    """Fecha AAAA-MM-DD (por ejemplo, la de ingreso de una tarea)."""
+    valor = _texto(entrada, clave, 12)
+    if valor is None:
+        return None
+    try:
+        dia = datetime.strptime(valor, "%Y-%m-%d").date()
+    except ValueError:
+        raise ErrorHerramienta(f"«{clave}» debe tener el formato AAAA-MM-DD.") from None
+    if not date.today() - timedelta(days=10 * 365) <= dia <= date.today() + timedelta(days=3 * 365):
+        raise ErrorHerramienta(f"«{clave}» está fuera de rango.")
+    return dia
+
+
+def _fecha_hora(entrada: dict, clave: str, pasado: bool = False) -> datetime | None:
+    """Fecha y hora AAAA-MM-DD HH:MM. Los recordatorios deben ser futuros;
+    con `pasado=True` (cuándo se terminó una tarea) debe ser pasada."""
     valor = _texto(entrada, clave, 20)
     if valor is None:
         return None
@@ -129,6 +239,10 @@ def _fecha_hora(entrada: dict, clave: str) -> datetime | None:
     except ValueError:
         raise ErrorHerramienta(f"«{clave}» debe tener el formato AAAA-MM-DD HH:MM.") from None
     ahora = datetime.now()
+    if pasado:
+        if not ahora - timedelta(days=10 * 365) <= momento <= ahora + timedelta(minutes=5):
+            raise ErrorHerramienta(f"«{clave}» debe ser una fecha pasada.")
+        return momento
     if momento < ahora - timedelta(minutes=5):
         raise ErrorHerramienta("Esa fecha y hora ya pasaron; pide al usuario otra.")
     if momento > ahora + timedelta(days=3 * 365):
@@ -151,6 +265,7 @@ def _tarea(p) -> dict:
         "estado": p.estado,
         "importancia": Importancia(p.importancia).etiqueta,
         "ingreso": p.fecha_ingreso.isoformat(),
+        "terminada": p.fecha_realizado.strftime(_FORMATO_FECHA_HORA) if p.fecha_realizado else None,
         "descripcion": (p.descripcion[:200] + "…") if len(p.descripcion) > 200 else p.descripcion,
     }
 
@@ -215,22 +330,30 @@ DEFINICIONES: list[dict] = [
                 "cliente": {**_NULO_TEXTO, "description": "Nombre exacto de un cliente existente."},
                 "importancia": {"type": ["string", "null"], "enum": [*_IMPORTANCIAS, None]},
                 "estado": {"type": ["string", "null"], "enum": [*_ESTADOS, None]},
+                "fecha_ingreso": {**_NULO_TEXTO, "description": "AAAA-MM-DD; si es null, hoy."},
             },
-            ["titulo", "descripcion", "cliente", "importancia", "estado"],
+            ["titulo", "descripcion", "cliente", "importancia", "estado", "fecha_ingreso"],
         ),
     },
     {
         "name": "editar_tarea",
-        "description": "Cambia datos de una tarea existente. Deja en null lo que no cambia.",
+        "description": "Cambia cualquier dato de una tarea existente: título, descripción, cliente, importancia, estado, fecha de ingreso o fecha en que se terminó. Deja en null lo que no cambia; quitar_cliente=true la deja sin cliente.",
         "input_schema": _esquema(
             {
                 "id": {"type": "integer"},
                 "titulo": _NULO_TEXTO,
                 "descripcion": _NULO_TEXTO,
                 "cliente": _NULO_TEXTO,
+                "quitar_cliente": {"type": "boolean"},
                 "importancia": {"type": ["string", "null"], "enum": [*_IMPORTANCIAS, None]},
+                "estado": {"type": ["string", "null"], "enum": [*_ESTADOS, None]},
+                "fecha_ingreso": {**_NULO_TEXTO, "description": "AAAA-MM-DD"},
+                "fecha_realizado": {**_NULO_TEXTO, "description": "AAAA-MM-DD HH:MM; solo si está Realizado"},
             },
-            ["id", "titulo", "descripcion", "cliente", "importancia"],
+            [
+                "id", "titulo", "descripcion", "cliente", "quitar_cliente", "importancia", "estado",
+                "fecha_ingreso", "fecha_realizado",
+            ],
         ),
     },
     {
@@ -243,7 +366,7 @@ DEFINICIONES: list[dict] = [
     },
     {
         "name": "eliminar_tareas",
-        "description": "Prepara la eliminación de una o varias tareas (por ejemplo, todas las que pidió el usuario). No se eliminan todavía: después pregúntale en una frase corta «¿Seguro que elimino …?». Si responde que sí, usa confirmar_eliminacion.",
+        "description": "Elimina una o varias tareas (por ejemplo, todas las que pidió el usuario). Solo funciona si el usuario pidió eliminar en este mensaje. Se puede deshacer unos minutos.",
         "input_schema": _esquema(
             {"ids": {"type": "array", "items": {"type": "integer"}, "minItems": 1, "maxItems": _MAX_A_ELIMINAR}},
             ["ids"],
@@ -284,16 +407,44 @@ DEFINICIONES: list[dict] = [
     },
     {
         "name": "eliminar_notas",
-        "description": "Prepara la eliminación de una o varias notas o recordatorios. No se eliminan todavía: después pregúntale en una frase corta «¿Seguro que elimino …?». Si responde que sí, usa confirmar_eliminacion.",
+        "description": "Elimina una o varias notas o recordatorios. Solo funciona si el usuario pidió eliminar en este mensaje. Se puede deshacer unos minutos.",
         "input_schema": _esquema(
             {"ids": {"type": "array", "items": {"type": "integer"}, "minItems": 1, "maxItems": _MAX_A_ELIMINAR}},
             ["ids"],
         ),
     },
     {
-        "name": "confirmar_eliminacion",
-        "description": "Elimina lo que preparaste con eliminar_tareas o eliminar_notas en tu mensaje anterior. Úsala solo si el usuario acaba de responder que sí (con cualquier palabra). Si dijo que no o cambió de tema, no la uses.",
+        "name": "deshacer_eliminacion",
+        "description": "Recupera lo último que se eliminó (si fue hace pocos minutos).",
         "input_schema": _esquema({}, []),
+    },
+    {
+        "name": "leer_nota",
+        "description": "Lee el contenido completo de una nota.",
+        "input_schema": _esquema({"id": {"type": "integer"}}, ["id"]),
+    },
+    {
+        "name": "leer_correo_tarea",
+        "description": "Arma el correo de aviso al cliente de una tarea (el mismo que genera la app al marcarla como Realizada): devuelve asunto y cuerpo para leérselo al usuario. No lo envía.",
+        "input_schema": _esquema({"id": {"type": "integer"}}, ["id"]),
+    },
+    {
+        "name": "listar_rutinas",
+        "description": "Lista las rutinas programadas (qué hacen, qué días y a qué hora).",
+        "input_schema": _esquema({}, []),
+    },
+    {
+        "name": "ver_configuracion",
+        "description": "Muestra la configuración actual de Notivoz (voz, personalidad, tema, inicio con Windows, avisos…). Solo lectura.",
+        "input_schema": _esquema({}, []),
+    },
+    {
+        "name": "abrir_ventana",
+        "description": "Abre la ventana de Notivoz (si estaba en la bandeja) y, si se indica, va a una sección.",
+        "input_schema": _esquema(
+            {"seccion": {"type": ["string", "null"], "enum": [*SECCIONES, None]}},
+            ["seccion"],
+        ),
     },
     {
         "name": "listar_clientes",
@@ -335,8 +486,15 @@ DEFINICIONES: list[dict] = [
 NOMBRES = {d["name"] for d in DEFINICIONES}
 _DE_ESCRITURA = {
     "crear_tarea", "editar_tarea", "cambiar_estado_tarea", "eliminar_tareas", "crear_nota",
-    "editar_nota", "eliminar_notas", "confirmar_eliminacion", "crear_cliente", "abrir_aplicacion",
+    "editar_nota", "eliminar_notas", "deshacer_eliminacion", "crear_cliente", "abrir_aplicacion",
     "cerrar_aplicacion", "activar_modo", "cerrar_modo",
+}
+# Acciones cuyo resultado no hace falta que la IA interprete: si salen bien, la
+# frase que ella escribió junto con la acción basta (una llamada menos).
+SIN_INTERPRETAR = {
+    "crear_tarea", "editar_tarea", "cambiar_estado_tarea", "eliminar_tareas", "crear_nota",
+    "editar_nota", "eliminar_notas", "deshacer_eliminacion", "crear_cliente", "abrir_aplicacion",
+    "activar_modo", "abrir_ventana",
 }
 
 
@@ -345,12 +503,10 @@ _DE_ESCRITURA = {
 
 @dataclass
 class AccionPendiente:
-    """Acción delicada que espera la confirmación del usuario: eliminar una
-    tarea o nota, o forzar el cierre de una aplicación."""
+    """Forzar el cierre de una aplicación (podría perder cambios sin guardar):
+    espera el «sí» del usuario."""
 
-    tipo: str  # "tarea" | "nota" | "forzar_cierre"
-    ids: tuple[int, ...]
-    titulo: str  # «Enviar cotización», «tus 5 tareas»…
+    titulo: str  # nombre de la aplicación
     vence: float
     procesos: frozenset[str] = frozenset()
 
@@ -358,20 +514,67 @@ class AccionPendiente:
     def vigente(self) -> bool:
         return time.monotonic() < self.vence
 
-    @property
-    def es_eliminacion(self) -> bool:
-        return self.tipo in ("tarea", "nota")
-
     def ejecutar(self) -> None:
-        if self.tipo == "tarea":
-            for id_ in self.ids:
-                servicio_pendientes.eliminar(id_)
-        elif self.tipo == "nota":
-            for id_ in self.ids:
-                servicio_notas.eliminar(id_)
-        else:
-            lanzador.cerrar_procesos(set(self.procesos), forzar=True)
-        log.info("Acción confirmada por el usuario: %s", self.tipo)
+        lanzador.cerrar_procesos(set(self.procesos), forzar=True)
+        log.info("Cierre forzado confirmado por el usuario")
+
+
+# --- Papelera: lo eliminado se puede recuperar unos minutos ---------------------------
+
+_MINUTOS_PARA_DESHACER = 10
+_papelera: dict[str, Any] = {}  # {"tipo", "filas", "titulo", "momento"}
+_candado_papelera = threading.Lock()
+
+
+def _a_la_papelera(tipo: str, elementos: list, titulo: str) -> None:
+    columnas = {
+        "tarea": ("titulo", "descripcion", "cliente_id", "importancia", "fecha_ingreso", "estado", "fecha_realizado"),
+        "nota": ("titulo", "contenido", "recordatorio", "notificado", "creado_en"),
+    }[tipo]
+    with _candado_papelera:
+        _papelera.clear()
+        _papelera.update(
+            tipo=tipo,
+            filas=[{c: getattr(e, c) for c in columnas} for e in elementos],
+            titulo=titulo,
+            momento=time.monotonic(),
+        )
+
+
+def deshacer_ultima_eliminacion() -> tuple[str, str] | None:
+    """Restaura lo último eliminado. Devuelve (tipo, título) o None si no hay nada."""
+    from app.data.database import session_scope
+    from app.data.models import Cliente, Nota, Pendiente
+
+    with _candado_papelera:
+        if not _papelera or time.monotonic() - _papelera["momento"] > _MINUTOS_PARA_DESHACER * 60:
+            return None
+        tipo, filas, titulo = _papelera["tipo"], _papelera["filas"], _papelera["titulo"]
+        _papelera.clear()
+    with session_scope() as s:
+        for fila in filas:
+            if tipo == "tarea":
+                if fila["cliente_id"] is not None and s.get(Cliente, fila["cliente_id"]) is None:
+                    fila = {**fila, "cliente_id": None}
+                s.add(Pendiente(**fila))
+            else:
+                s.add(Nota(**fila))
+    log.info("Eliminación deshecha: %d elementos", len(filas))
+    return tipo, titulo
+
+
+def hay_algo_para_deshacer() -> bool:
+    with _candado_papelera:
+        return bool(_papelera) and time.monotonic() - _papelera["momento"] <= _MINUTOS_PARA_DESHACER * 60
+
+
+_PALABRAS_ELIMINAR = ("elimin", "borr", "quit", "limpi", "sac", "descart", "remov", "suprim", "deshaz")
+
+
+def pidio_eliminar(pedido: str) -> bool:
+    """¿El usuario pidió eliminar con sus palabras («elimina», «bórralas»…)?"""
+    texto = normalizar(pedido)
+    return any(p in texto for p in _PALABRAS_ELIMINAR)
 
 
 @dataclass
@@ -382,7 +585,9 @@ class Efectos:
     notas: bool = False
     comandos_activados: list[int] = field(default_factory=list)
     comandos_cerrados: list[str] = field(default_factory=list)  # frases a decir
-    eliminado: str = ""  # lo que se eliminó, para el aviso flotante
+    eliminado: str = ""  # lo que se eliminó, para el aviso flotante (con Deshacer)
+    restaurado: str = ""  # lo que se recuperó
+    abrir_ventana: str | None = None  # "" = solo mostrarla; si no, la sección
 
 
 class Herramientas:
@@ -390,9 +595,7 @@ class Herramientas:
         # Para cerrar modos con las frases de la personalidad elegida.
         self._frases_actuales = frases_actuales
         self.pendiente: AccionPendiente | None = None
-        # La eliminación preparada en el turno anterior: solo esa se puede confirmar.
-        self._pendiente_previo: AccionPendiente | None = None
-        # Lo que dijo el usuario en este turno (para comprobar que no dijo «no»).
+        # Lo que dijo el usuario en este pedido (para comprobar que pidió eliminar).
         self.ultimo_pedido = ""
         self.efectos = Efectos()
         self._cambios_turno = 0
@@ -402,9 +605,7 @@ class Herramientas:
     def nuevo_turno(self) -> None:
         self._cambios_turno = 0
         self.efectos = Efectos()
-        # Lo preparado en el turno anterior solo se puede confirmar ahora; si no,
-        # caduca.
-        self._pendiente_previo = self.pendiente if self.pendiente and self.pendiente.vigente else None
+        # Un pedido nuevo deja sin efecto un cierre forzado que no se confirmó.
         self.pendiente = None
 
     def ejecutar(self, nombre: str, entrada: Any) -> tuple[str, bool]:
@@ -436,14 +637,13 @@ class Herramientas:
     def _cliente_id(self, nombre: str | None) -> int | None:
         if nombre is None:
             return None
-        buscado = normalizar(nombre)
-        for cliente in servicio_clientes.listar():
-            if normalizar(cliente.nombre) == buscado:
-                return cliente.id
-        nombres = [c.nombre for c in servicio_clientes.listar()]
+        clientes = servicio_clientes.listar()
+        cliente = cliente_parecido(nombre, clientes)
+        if cliente is not None:
+            return cliente.id
         raise ErrorHerramienta(
-            f"No existe el cliente «{nombre}». Clientes: {', '.join(nombres) or 'ninguno'}. "
-            "Pregunta al usuario si quiere crearlo."
+            f"No existe el cliente «{nombre}» ni uno parecido. Clientes: "
+            f"{', '.join(c.nombre for c in clientes) or 'ninguno'}. Pregunta al usuario si quiere crearlo."
         )
 
     def _h_buscar_tareas(self, entrada: dict) -> dict:
@@ -461,6 +661,10 @@ class Herramientas:
             "por_estado": {estado.value: total for estado, total in conteo.items()},
             "terminadas_hoy": len(dia.realizadas),
             "racha_dias": dia.racha,
+            "sugerencias_de_subir_importancia": [
+                {"tarea": servicio_pendientes.obtener(i).titulo, "sugerida": imp.etiqueta}
+                for i, imp in list(servicio_pendientes.sugerencias_prioridad().items())[:10]
+            ],
         }
 
     def _h_crear_tarea(self, entrada: dict) -> dict:
@@ -476,6 +680,7 @@ class Herramientas:
                 cliente_id=cliente_id,
                 importancia=_opcion(entrada, "importancia", _IMPORTANCIAS) or Importancia.MEDIA,
                 estado=_opcion(entrada, "estado", _ESTADOS) or Estado.PENDIENTE,
+                fecha_ingreso=_fecha(entrada, "fecha_ingreso") or date.today(),
             )
         )
         self.efectos.tareas = True
@@ -490,17 +695,27 @@ class Herramientas:
     def _h_editar_tarea(self, entrada: dict) -> dict:
         tarea = self._tarea_existente(entrada)
         cliente = _texto(entrada, "cliente", _LARGO_NOMBRE)
+        if _booleano(entrada, "quitar_cliente"):
+            cliente_id = None
+        else:
+            cliente_id = self._cliente_id(cliente) if cliente else tarea.cliente_id
+        estado = _opcion(entrada, "estado", _ESTADOS) or Estado(tarea.estado)
+        fecha_realizado = _fecha_hora(entrada, "fecha_realizado", pasado=True)
+        if fecha_realizado is not None and estado != Estado.REALIZADO:
+            raise ErrorHerramienta("La fecha en que se terminó solo vale para tareas Realizadas.")
         servicio_pendientes.guardar(
             DatosPendiente(
                 id=tarea.id,
                 titulo=_texto(entrada, "titulo", _LARGO_TITULO) or tarea.titulo,
                 descripcion=_texto(entrada, "descripcion", _LARGO_DESCRIPCION) or tarea.descripcion,
-                cliente_id=self._cliente_id(cliente) if cliente else tarea.cliente_id,
+                cliente_id=cliente_id,
                 importancia=_opcion(entrada, "importancia", _IMPORTANCIAS) or Importancia(tarea.importancia),
-                fecha_ingreso=tarea.fecha_ingreso,
-                estado=Estado(tarea.estado),
+                fecha_ingreso=_fecha(entrada, "fecha_ingreso") or tarea.fecha_ingreso,
+                estado=estado,
             )
         )
+        if fecha_realizado is not None:
+            servicio_pendientes.cambiar_fecha_realizado(tarea.id, fecha_realizado)
         self.efectos.tareas = True
         return {"editada": True, "tarea": _tarea(servicio_pendientes.obtener(tarea.id))}
 
@@ -521,37 +736,40 @@ class Herramientas:
             raise ErrorHerramienta(f"«ids» debe ser una lista de 1 a {_MAX_A_ELIMINAR} ids.")
         return list(dict.fromkeys(_id({"id": i}) for i in ids))
 
-    def _preparar_eliminacion(self, tipo: str, elementos: list) -> dict:
+    def _eliminar(self, tipo: str, elementos: list) -> dict:
+        if not pidio_eliminar(self.ultimo_pedido):
+            raise ErrorHerramienta(
+                "Solo se elimina si el usuario lo pide con sus palabras en este mensaje. Pregúntale si quiere eliminarlo."
+            )
         nombre = "tarea" if tipo == "tarea" else "nota"
         titulo = elementos[0].titulo if len(elementos) == 1 else f"{len(elementos)} {nombre}s"
-        self.pendiente = AccionPendiente(
-            tipo, tuple(e.id for e in elementos), titulo, time.monotonic() + SEGUNDOS_PARA_CONFIRMAR
-        )
-        return {
-            "eliminadas": False,
-            "falta_que_el_usuario_diga_que_si": True,
-            "elementos": [e.titulo for e in elementos[:MAX_RESULTADOS]],
-            "total": len(elementos),
-        }
-
-    def _h_eliminar_tareas(self, entrada: dict) -> dict:
-        tareas = [self._tarea_existente({"id": i}) for i in self._ids(entrada)]
-        return self._preparar_eliminacion("tarea", tareas)
-
-    def _h_confirmar_eliminacion(self, _entrada: dict) -> dict:
-        pendiente = self._pendiente_previo
-        if pendiente is None or not pendiente.vigente or not pendiente.es_eliminacion:
-            raise ErrorHerramienta("No hay nada preparado para eliminar. Prepáralo y pregunta primero.")
-        if respuesta_confirmacion(self.ultimo_pedido) is False:
-            raise ErrorHerramienta("El usuario dijo que no: no se elimina.")
-        pendiente.ejecutar()
-        self._pendiente_previo = None
-        if pendiente.tipo == "tarea":
+        _a_la_papelera(tipo, elementos, titulo)
+        eliminar = servicio_pendientes.eliminar if tipo == "tarea" else servicio_notas.eliminar
+        for elemento in elementos:
+            eliminar(elemento.id)
+        if tipo == "tarea":
             self.efectos.tareas = True
         else:
             self.efectos.notas = True
-        self.efectos.eliminado = pendiente.titulo
-        return {"eliminadas": True, "cantidad": len(pendiente.ids), "que": pendiente.titulo}
+        self.efectos.eliminado = titulo
+        log.info("Eliminados %d elementos (%s)", len(elementos), tipo)
+        return {"eliminadas": True, "cantidad": len(elementos), "se_puede_deshacer": True}
+
+    def _h_eliminar_tareas(self, entrada: dict) -> dict:
+        tareas = [self._tarea_existente({"id": i}) for i in self._ids(entrada)]
+        return self._eliminar("tarea", tareas)
+
+    def _h_deshacer_eliminacion(self, _entrada: dict) -> dict:
+        restaurado = deshacer_ultima_eliminacion()
+        if restaurado is None:
+            raise ErrorHerramienta("No hay nada reciente para recuperar.")
+        tipo, titulo = restaurado
+        if tipo == "tarea":
+            self.efectos.tareas = True
+        else:
+            self.efectos.notas = True
+        self.efectos.restaurado = titulo
+        return {"restaurado": True, "que": titulo}
 
     # --- Notas ---
 
@@ -614,7 +832,67 @@ class Herramientas:
 
     def _h_eliminar_notas(self, entrada: dict) -> dict:
         notas = [self._nota_existente({"id": i}) for i in self._ids(entrada)]
-        return self._preparar_eliminacion("nota", notas)
+        return self._eliminar("nota", notas)
+
+    def _h_leer_nota(self, entrada: dict) -> dict:
+        nota = self._nota_existente(entrada)
+        datos = _nota(nota)
+        datos["contenido"] = nota.contenido[:_LARGO_CONTENIDO]
+        return datos
+
+    # --- Lectura del resto de la app ---
+
+    def _h_leer_correo_tarea(self, entrada: dict) -> dict:
+        tarea = self._tarea_existente(entrada)
+        correo = RedactorCorreo(tarea, ajustes.obtener(Clave.NOMBRE)).otra_version()
+        aviso = "" if tarea.estado == Estado.REALIZADO else "La tarea aún no está marcada como Realizada."
+        return {"tarea": tarea.titulo, "asunto": correo.asunto, "cuerpo": correo.cuerpo, "aviso": aviso}
+
+    def _h_listar_rutinas(self, _entrada: dict) -> dict:
+        acciones = {
+            "leer_pendientes": "leer tus pendientes",
+            "resumen_dia": "decir el resumen del día",
+            "ejecutar_comando": "activar un modo",
+        }
+        return {
+            "rutinas": [
+                {
+                    "nombre": r.nombre,
+                    "accion": acciones.get(r.accion, r.accion)
+                    + (f" «{r.comando.frase}»" if r.comando is not None else ""),
+                    "dias": servicio_rutinas.describir_dias(servicio_rutinas.dias_de(r)),
+                    "hora": r.hora,
+                    "activa": r.activo,
+                }
+                for r in servicio_rutinas.listar()[:50]
+            ]
+        }
+
+    def _h_ver_configuracion(self, _entrada: dict) -> dict:
+        from app.services import inicio_windows
+
+        a = ajustes.obtener
+        return {
+            "tu_nombre": a(Clave.NOMBRE),
+            "personalidad": a(Clave.PERSONALIDAD),
+            "voz": a(Clave.VOZ_NOMBRE) or "voz de Windows",
+            "velocidad_voz": a(Clave.VOZ_VELOCIDAD),
+            "volumen_voz": a(Clave.VOZ_VOLUMEN),
+            "tema": a(Clave.TEMA),
+            "iniciar_con_windows": inicio_windows.esta_activo(),
+            "arrancar_en_bandeja": a(Clave.INICIAR_EN_BANDEJA),
+            "leer_pendientes_al_iniciar": a(Clave.LEER_AL_INICIAR),
+            "cerrar_a_bandeja": a(Clave.CERRAR_A_BANDEJA),
+            "celebrar_racha": a(Clave.CELEBRAR_RACHA),
+            "resumen_al_apagar": a(Clave.RESUMEN_AL_APAGAR),
+            "aviso_apps_de_ocio": a(Clave.AVISO_OCIO),
+            "horario_de_trabajo": f"{a(Clave.HORARIO_INICIO)} a {a(Clave.HORARIO_FIN)}",
+        }
+
+    def _h_abrir_ventana(self, entrada: dict) -> dict:
+        seccion = _opcion(entrada, "seccion", {s: s for s in SECCIONES})
+        self.efectos.abrir_ventana = seccion or ""
+        return {"abierta": True, "seccion": seccion}
 
     # --- Clientes ---
 
@@ -694,9 +972,7 @@ class Herramientas:
         siguen = lanzador.esperar_cierre(procesos)
         if not siguen:
             return {"cerrada": True, "aplicacion": nombre}
-        self.pendiente = AccionPendiente(
-            "forzar_cierre", (), nombre, time.monotonic() + SEGUNDOS_PARA_CONFIRMAR, frozenset(siguen)
-        )
+        self.pendiente = AccionPendiente(nombre, time.monotonic() + SEGUNDOS_PARA_CONFIRMAR, frozenset(siguen))
         return {
             "cerrada": False,
             "motivo": "La aplicación no se cerró (puede seguir en segundo plano o tener cambios sin guardar).",

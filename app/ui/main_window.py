@@ -36,6 +36,7 @@ from app.ui.apariencia import apariencia, preparar_ventana_principal
 from app.ui.asistente_voz import ControladorIA
 from app.ui.bandeja import Bandeja
 from app.ui.burbuja import BurbujaVoz
+from app.ui.chat_view import ChatView
 from app.ui.comandos_view import ComandosView
 from app.ui.configuracion_view import ConfiguracionView
 from app.ui.icono import icono_app
@@ -66,11 +67,13 @@ class MainWindow(QMainWindow):
         self.comandos = ComandosView()
         self.rutinas = RutinasView()
         self.configuracion = ConfiguracionView()
+        self.chat = ChatView()
         vistas = [
             ("Mis tareas", "pendientes", self.pendientes),
             ("Notas", "notas", self.notas),
             ("Comandos de voz", "comandos", self.comandos),
             ("Rutinas", "rutinas", self.rutinas),
+            ("Chateemos", "chat", self.chat),
             ("Configuración", "configuracion", self.configuracion),
         ]
 
@@ -160,13 +163,18 @@ class MainWindow(QMainWindow):
         self._escucha_antes_de_prueba = False
         self._probando_microfono = False
         self.escucha.interrupcion.connect(self.burbuja.escuchar)
+        self.escucha.ventana_abierta.connect(self.burbuja.escuchar)
 
         # --- IA: pedidos libres por voz ---
         self.ia = ControladorIA(self.escucha, self)
+        self.chat.conectar(self.ia)
         self.ia.pensando.connect(lambda si: self.burbuja.ejecutar() if si else self.burbuja.ocultar())
         self.ia.tareas_cambiaron.connect(self.pendientes.recargar)
         self.ia.notas_cambiaron.connect(self.notas.recargar)
         self.ia.activar_modo.connect(self.ejecutar_comando)
+        self.ia.decir_en_nube.connect(self.burbuja.decir)
+        self.ia.gesto.connect(self.burbuja.gesto)
+        self.ia.mostrar_ventana.connect(self._mostrar_seccion)
 
         # --- Señales de las vistas ---
         self.pendientes.tarea_realizada.connect(self._celebrar)
@@ -182,6 +190,7 @@ class MainWindow(QMainWindow):
         self.configuracion.modelo_instalado.connect(self._reiniciar_escucha)
         self.configuracion.personalidad_cambiada.connect(self.comandos.recargar)
         self.configuracion.ia_cambiada.connect(self.ia.actualizar)
+        self.configuracion.ia_cambiada.connect(self.chat.actualizar)
 
         # Al apagar Windows: resumen del día.
         QApplication.instance().commitDataRequest.connect(self._al_apagar_windows)
@@ -361,6 +370,13 @@ class MainWindow(QMainWindow):
             self.show()
         self.raise_()
         self.activateWindow()
+
+    def _mostrar_seccion(self, nombre: str) -> None:
+        """La IA pidió abrir la ventana («Notivoz, ábrete», «muéstrame mis notas»)."""
+        self.mostrar()
+        for fila in range(self.nav.count()):
+            if nombre and self.nav.item(fila).text() == nombre:
+                self.nav.setCurrentRow(fila)
 
     def _ir_a(self, vista: QWidget, accion) -> None:
         self.mostrar()
