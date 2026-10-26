@@ -25,6 +25,8 @@ from app.data.models import AccionRutina, Rutina
 from app.services import comandos as servicio_comandos
 from app.services import rutinas as servicio
 from app.services.rutinas import DIAS_CORTOS, DatosRutina
+from app.ui.animaciones import aparecer, desvanecer
+from app.ui.avisos import Tipo, avisar
 from app.ui.widgets import HoraEdit
 
 
@@ -223,7 +225,7 @@ class RutinaCard(QFrame):
         layout.addLayout(arriba)
         layout.addWidget(cuando)
         if not rutina.activo:
-            titulo.setStyleSheet("color: #8b93a1;")
+            titulo.setProperty("suave", True)
 
     def mouseDoubleClickEvent(self, event) -> None:
         if event.button() == Qt.MouseButton.LeftButton:
@@ -309,6 +311,19 @@ class RutinasView(QWidget):
             self._layout_lista.addWidget(vacio)
         self._layout_lista.addStretch()
 
+    def _tarjeta(self, rutina_id: int) -> RutinaCard | None:
+        for i in range(self._layout_lista.count()):
+            widget = self._layout_lista.itemAt(i).widget()
+            if isinstance(widget, RutinaCard) and widget.rutina_id == rutina_id:
+                return widget
+        return None
+
+    def _resaltar(self, rutina_id: int) -> None:
+        """La tarjeta recién guardada aparece con un fundido."""
+        tarjeta = self._tarjeta(rutina_id)
+        if tarjeta is not None:
+            aparecer(tarjeta, 320)
+
     def nueva(self) -> None:
         self._abrir_formulario(None)
 
@@ -320,11 +335,13 @@ class RutinasView(QWidget):
         dialogo = RutinaDialog(rutina, self)
         if dialogo.exec():
             try:
-                servicio.guardar(dialogo.datos())
+                guardado_id = servicio.guardar(dialogo.datos())
             except ValueError as error:
                 QMessageBox.warning(self, "No se pudo guardar", str(error))
                 return
             self.recargar()
+            self._resaltar(guardado_id)
+            avisar(f"Rutina {'actualizada' if rutina_id is not None else 'creada'}")
 
     def _cambiar_activo(self, rutina_id: int, activo: bool) -> None:
         servicio.cambiar_activo(rutina_id, activo)
@@ -342,5 +359,13 @@ class RutinasView(QWidget):
             QMessageBox.StandardButton.No,
         )
         if respuesta == QMessageBox.StandardButton.Yes:
-            servicio.eliminar(rutina_id)
-            self.recargar()
+            def borrar() -> None:
+                servicio.eliminar(rutina_id)
+                self.recargar()
+                avisar("Rutina eliminada", Tipo.ELIMINADO)
+
+            tarjeta = self._tarjeta(rutina_id)
+            if tarjeta is None:
+                borrar()
+            else:
+                desvanecer(tarjeta, borrar)

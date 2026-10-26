@@ -23,6 +23,7 @@ from app.services import clientes as servicio_clientes
 from app.services import pendientes as servicio
 from app.services.pendientes import FiltroPendientes
 from app.ui import theme
+from app.ui.avisos import Tipo, avisar
 from app.ui.clientes_dialog import ClientesDialog
 from app.ui.correo_dialog import CorreoDialog
 from app.ui.pendiente_dialog import PendienteDialog
@@ -203,6 +204,12 @@ class PendientesView(QWidget):
 
     # --- Datos ---------------------------------------------------------------
 
+    def actualizar_tema(self) -> None:
+        """Los colores de estado cambian con el tema (más intensos en el claro)."""
+        for estado, chip in self.chips.items():
+            chip.set_color(theme.COLOR_ESTADO[estado])
+        self.tabla.viewport().update()
+
     def _filtro(self) -> FiltroPendientes:
         return FiltroPendientes(
             texto=self.buscar.text(),
@@ -295,6 +302,7 @@ class PendientesView(QWidget):
                 return
             self.recargar()
             self._seleccionar(nuevo_id)
+            avisar("Tarea actualizada" if pendiente is not None else "Tarea creada")
             if datos.estado == Estado.REALIZADO and not estaba_realizada:
                 self.tarea_realizada.emit(nuevo_id)
 
@@ -311,6 +319,8 @@ class PendientesView(QWidget):
         anterior = servicio.obtener(pendiente_id)
         servicio.cambiar_estado(pendiente_id, estado)
         self.recargar()
+        if anterior is not None and anterior.estado != estado:
+            avisar(f"Tarea marcada como «{estado.value}»")
         if estado == Estado.REALIZADO and anterior and anterior.estado != Estado.REALIZADO:
             self.tarea_realizada.emit(pendiente_id)
 
@@ -340,6 +350,7 @@ class PendientesView(QWidget):
         if respuesta == QMessageBox.StandardButton.Yes:
             servicio.eliminar(pendiente_id)
             self.recargar()
+            avisar("Tarea eliminada", Tipo.ELIMINADO)
 
     def _menu_contextual(self, pos) -> None:
         indice = self.tabla.indexAt(pos)

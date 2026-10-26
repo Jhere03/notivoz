@@ -20,9 +20,9 @@ from app.data.database import init_db
 from app.services import ajustes, inicio_windows
 from app.services.ajustes import Clave
 from app.services.voz import voz
+from app.ui import apariencia
 from app.ui.icono import icono_app
 from app.ui.main_window import MainWindow
-from app.ui.theme import QSS
 from app.ui.widgets import SinRuedaAccidental
 
 # Con un único servidor local por usuario se evita abrir Notivoz dos veces.
@@ -94,7 +94,6 @@ def main() -> int:
     app.setApplicationVersion(APP_VERSION)
     app.setWindowIcon(icono_app())
     app.setStyle("Fusion")
-    app.setStyleSheet(QSS)
     # La app sigue viva en la bandeja aunque no haya ventanas visibles.
     app.setQuitOnLastWindowClosed(False)
     # La rueda del mouse desplaza la página en vez de cambiar listas y deslizadores.
@@ -106,6 +105,7 @@ def main() -> int:
         return 0
 
     init_db()
+    apariencia.instalar(app, ajustes.obtener(Clave.TEMA))
     inicio_windows.actualizar_ruta()
     voz().velocidad = ajustes.obtener(Clave.VOZ_VELOCIDAD)
     voz().volumen = ajustes.obtener(Clave.VOZ_VOLUMEN)

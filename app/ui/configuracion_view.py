@@ -2,9 +2,10 @@
 
 import threading
 
-from PySide6.QtCore import Qt, QTimer, Signal
-from PySide6.QtGui import QCursor
+from PySide6.QtCore import QRectF, QSize, Qt, QTimer, Signal
+from PySide6.QtGui import QColor, QCursor, QIcon, QLinearGradient, QPainter, QPixmap
 from PySide6.QtWidgets import (
+    QButtonGroup,
     QCheckBox,
     QComboBox,
     QFrame,
@@ -19,6 +20,7 @@ from PySide6.QtWidgets import (
     QScrollArea,
     QSizePolicy,
     QSlider,
+    QToolButton,
     QVBoxLayout,
     QWidget,
 )
@@ -30,6 +32,8 @@ from app.services.microfono import PruebaMicrofono
 from app.services.personalidad import Personalidad
 from app.services.rutinas import DIAS_CORTOS
 from app.services.voz import VOCES_NEURALES, VOZ_WINDOWS, voz
+from app.ui import theme
+from app.ui.apariencia import acrilico_disponible, apariencia
 from app.ui.widgets import HoraEdit
 
 
@@ -50,6 +54,51 @@ def _seccion(titulo: str, descripcion: str = "") -> tuple[QFrame, QVBoxLayout]:
         texto.setWordWrap(True)
         layout.addWidget(texto)
     return marco, layout
+
+
+def _miniatura(nombre: str) -> QIcon:
+    """Dibujo de una ventanita con los colores del tema."""
+    c = theme.paleta(nombre)
+    ancho, alto = 132, 82
+    pixmap = QPixmap(ancho * 2, alto * 2)
+    pixmap.setDevicePixelRatio(2)
+    pixmap.fill(Qt.GlobalColor.transparent)
+    p = QPainter(pixmap)
+    p.setRenderHint(QPainter.RenderHint.Antialiasing)
+    p.setPen(QColor(c["borde"]))
+    marco = QRectF(0.5, 0.5, ancho - 1, alto - 1)
+    if nombre == theme.TRANSLUCIDO:
+        # Lo que hay "detrás" de la ventana, visto a través de ella.
+        detras = QLinearGradient(0, 0, ancho, alto)
+        detras.setColorAt(0, QColor("#3d8bfd"))
+        detras.setColorAt(0.5, QColor("#7c5cff"))
+        detras.setColorAt(1, QColor("#2dd4bf"))
+        p.setBrush(detras)
+        p.drawRoundedRect(marco, 8, 8)
+        fondo, lateral = QColor(14, 16, 21, 150), QColor(28, 31, 39, 120)
+    else:
+        fondo, lateral = QColor(c["fondo"]), QColor(c["superficie"])
+    p.setBrush(fondo)
+    p.drawRoundedRect(marco, 8, 8)
+    p.setPen(Qt.PenStyle.NoPen)
+    p.setBrush(lateral)
+    p.drawRoundedRect(QRectF(1, 1, 36, alto - 2), 7, 7)
+    p.setBrush(QColor(c["acento"]))
+    p.drawRoundedRect(QRectF(6, 14, 26, 7), 3, 3)
+    p.setBrush(QColor(c["texto_suave"]))
+    for y in (27, 37):
+        p.drawRoundedRect(QRectF(6, y, 22, 5), 2, 2)
+    p.setBrush(QColor(c["texto"]))
+    p.drawRoundedRect(QRectF(46, 12, 46, 7), 3, 3)
+    tarjeta = QColor(c["superficie"])
+    if nombre == theme.TRANSLUCIDO:
+        tarjeta = QColor(46, 50, 61, 150)
+    p.setBrush(tarjeta)
+    p.drawRoundedRect(QRectF(46, 28, ancho - 56, 42), 5, 5)
+    p.setBrush(QColor(c["acento"]))
+    p.drawRoundedRect(QRectF(ancho - 40, 58, 28, 8), 3, 3)
+    p.end()
+    return QIcon(pixmap)
 
 
 def _ayuda(texto: str) -> QLabel:
@@ -75,6 +124,39 @@ class ConfiguracionView(QWidget):
 
         titulo = QLabel("Configuración")
         titulo.setObjectName("TituloVista")
+
+        # --- Apariencia ------------------------------------------------------
+        seccion_tema, l_tema = _seccion("Apariencia")
+        self.grupo_tema = QButtonGroup(self)
+        fila_temas = QHBoxLayout()
+        fila_temas.setSpacing(10)
+        tema_guardado = ajustes.obtener(Clave.TEMA)
+        for nombre, etiqueta in theme.TEMAS.items():
+            opcion = QToolButton()
+            opcion.setText(etiqueta)
+            opcion.setObjectName("OpcionTema")
+            opcion.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextUnderIcon)
+            opcion.setCheckable(True)
+            opcion.setCursor(Qt.CursorShape.PointingHandCursor)
+            opcion.setIcon(_miniatura(nombre))
+            opcion.setIconSize(QSize(132, 82))
+            opcion.setProperty("tema", nombre)
+            if nombre == theme.TRANSLUCIDO and not acrilico_disponible():
+                opcion.setEnabled(False)
+                opcion.setToolTip("Necesita Windows 11")
+            opcion.setChecked(nombre == tema_guardado)
+            self.grupo_tema.addButton(opcion)
+            fila_temas.addWidget(opcion)
+        fila_temas.addStretch()
+        self.grupo_tema.buttonClicked.connect(self._cambiar_tema)
+        l_tema.addLayout(fila_temas)
+        l_tema.addWidget(
+            _ayuda(
+                "Translúcido deja ver, desenfocado, lo que hay detrás de Notivoz "
+                "(como el Explorador de Windows 11). Cuando la ventana no está activa, "
+                "Windows la muestra opaca."
+            )
+        )
 
         # --- Inicio ----------------------------------------------------------
         inicio, l_inicio = _seccion("Inicio con Windows")
@@ -321,7 +403,7 @@ class ConfiguracionView(QWidget):
         columna = QVBoxLayout(contenido)
         columna.setContentsMargins(0, 0, 6, 0)
         columna.setSpacing(14)
-        for marco in (inicio, bandeja, seccion_voz, seccion_escucha, productividad):
+        for marco in (seccion_tema, inicio, bandeja, seccion_voz, seccion_escucha, productividad):
             marco.setMaximumWidth(760)
             columna.addWidget(marco)
         columna.addStretch()
@@ -359,6 +441,11 @@ class ConfiguracionView(QWidget):
         for i, widget in enumerate(widgets):
             layout.addWidget(widget, stretch=1 if i == 0 else 0)
         return fila
+
+    def _cambiar_tema(self, boton: QToolButton) -> None:
+        nombre = boton.property("tema")
+        ajustes.guardar(Clave.TEMA, nombre)
+        apariencia().aplicar(nombre)
 
     def _actualizar_etiquetas(self) -> None:
         v = self.velocidad.value()
