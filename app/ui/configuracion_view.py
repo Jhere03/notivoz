@@ -537,3 +537,4 @@ class ConfiguracionView(QWidget):
     def _probar(self) -> None:
         ajustes.guardar(Clave.NOMBRE, self.nombre.text().strip())
         self.probar_saludo.emit()
+
