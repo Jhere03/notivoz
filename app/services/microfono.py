@@ -5,6 +5,8 @@ import logging
 import math
 from array import array
 
+from app.services.audio import indice_dispositivo
+
 log = logging.getLogger(__name__)
 
 FRECUENCIA = 16000
@@ -35,7 +37,7 @@ class PruebaMicrofono:
     def activa(self) -> bool:
         return self._stream is not None
 
-    def iniciar(self, dispositivo: str | None = None) -> None:
+    def iniciar(self, dispositivo: str | None = None, salida: str | None = None) -> None:
         """Lanza OSError/Exception si no se puede abrir el micrófono o los parlantes."""
         import sounddevice as sd
 
@@ -56,7 +58,10 @@ class PruebaMicrofono:
             blocksize=BLOQUE,
             dtype="int16",
             channels=1,
-            device=(dispositivo, None),
+            device=(
+                indice_dispositivo(dispositivo, entrada=True),
+                indice_dispositivo(salida, entrada=False),
+            ),
             callback=procesar,
         )
         self._stream.start()

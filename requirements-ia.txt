@@ -1,0 +1,6 @@
+# Whisper local (voz a texto) para el asistente con IA.
+# Instalar SIN dependencias: las que piden (pyyaml, huggingface_hub) solo sirven
+# para convertir modelos, Notivoz no las usa y no tienen versión para Python 3.15.
+#   pip install --no-deps -r requirements-ia.txt
+ctranslate2==4.8.4
+tokenizers==0.23.3
