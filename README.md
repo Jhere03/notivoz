@@ -38,6 +38,28 @@ python main.py
 
 En VS Code basta con abrir la carpeta y pulsar **F5**. La configuración «Notivoz» ya usa el entorno `.venv`.
 
+## Instalar Notivoz (sin programar)
+
+1. Descarga `Notivoz-Setup-X.Y.Z.exe` desde [Releases](https://github.com/Jhere03/notivoz/releases).
+2. Ábrelo. Si Windows muestra «Windows protegió su PC», pulsa **Más información → Ejecutar de todas formas** (el instalador aún no tiene firma digital).
+3. Sigue el asistente. Se instala solo para tu usuario, sin permisos de administrador. Al abrir Notivoz por primera vez prepara la voz solo (descarga ~500 MB, una vez).
+4. Para la IA: **Configuración → Asistente con IA**, pega tu clave de Anthropic y activa el asistente.
+
+**Actualizaciones:** cuando hay una versión nueva, en el menú lateral aparece «Hay una nueva actualización». Un clic la descarga (verificando su huella SHA-256), se instala y Notivoz se vuelve a abrir. Tus tareas, notas y ajustes no se tocan.
+
+## Publicar una versión (desarrollo)
+
+Requisitos, una vez: `pip install -r requirements-dev.txt`, Inno Setup 6 (`winget install JRSoftware.InnoSetup`) y GitHub CLI con sesión iniciada (`winget install GitHub.cli` y luego `gh auth login`).
+
+1. Sube `APP_VERSION` en `app/config.py` (por ejemplo `0.1.1`) en tu rama y haz el merge a `master`.
+2. En `master`, actualizado y sin cambios pendientes:
+
+```bash
+.venv\Scripts\python empaquetado\publicar.py "Qué cambió en esta versión"
+```
+
+Construye `Notivoz.exe` y el instalador, y crea el Release con el instalador y su huella. Solo para construir, sin publicar: `.venv\Scripts\python empaquetado\construir.py` (deja el instalador en `dist\instalador`).
+
 ## Uso
 
 ### Mis tareas

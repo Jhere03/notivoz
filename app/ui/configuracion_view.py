@@ -536,6 +536,11 @@ class ConfiguracionView(QWidget):
 
     # --- Comandos de voz -------------------------------------------------------
 
+    def refrescar_modelos(self) -> None:
+        """Los modelos de voz se descargaron solos (primera vez)."""
+        self._actualizar_estado_modelo()
+        self.seccion_ia.actualizar()
+
     def _actualizar_estado_modelo(self) -> None:
         if modelo_voz.instalado():
             self.estado_modelo.setText("✓  Modelo de voz en español instalado.")

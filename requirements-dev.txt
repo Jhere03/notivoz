@@ -1,1 +1,2 @@
 pyflakes==4.0.3
+pyinstaller==6.22.3
