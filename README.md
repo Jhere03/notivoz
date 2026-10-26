@@ -71,6 +71,14 @@ En VS Code basta con abrir la carpeta y pulsar **F5**. La configuración «Notiv
   - Los audios ya generados se guardan en `%APPDATA%\Notivoz\voz_cache` (máximo 300), así las frases repetidas suenan al instante y también sin internet.
   - Si prefieres no usar internet para la voz, elige **«Voz de Windows»**.
 
+### Apariencia
+
+- En **Configuración → Apariencia** eliges entre tres temas, que se aplican al instante:
+  - **Oscuro** (predeterminado).
+  - **Claro**: fondos blancos y botones negros, con el mismo morado.
+  - **Translúcido**: efecto acrílico de Windows 11; deja ver, desenfocado, lo que hay detrás de la ventana. Cuando la ventana no está activa, Windows la muestra opaca. Requiere Windows 11.
+- Los cambios de sección, los diálogos y las tarjetas que se guardan o eliminan se animan, y al crear, editar o eliminar aparece un aviso breve en la parte inferior.
+
 ### Bandeja e inicio con Windows
 
 - Notivoz vive en la **bandeja del sistema**, junto al reloj. Al cerrar la ventana sigue funcionando ahí y los recordatorios siguen sonando.

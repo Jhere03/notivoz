@@ -18,6 +18,8 @@ from app.data.models import Comando
 from app.services import ajustes
 from app.services import comandos as servicio
 from app.services.escucha import NOMBRE_ACTIVACION
+from app.ui.animaciones import aparecer, desvanecer
+from app.ui.avisos import Tipo, avisar
 from app.ui.comando_dialog import ComandoDialog, icono_de
 
 _MAX_CHIPS = 6
@@ -103,7 +105,7 @@ class ComandoCard(QFrame):
         layout.addWidget(respuesta)
         if not comando.activo:
             self.setProperty("inactivo", True)
-            frase.setStyleSheet("color: #8b93a1;")
+            frase.setProperty("suave", True)
 
     def mouseDoubleClickEvent(self, event) -> None:
         if event.button() == Qt.MouseButton.LeftButton:
@@ -233,6 +235,19 @@ class ComandosView(QWidget):
         self.recargar()
         self.comandos_cambiaron.emit()
 
+    def _tarjeta(self, comando_id: int) -> ComandoCard | None:
+        for i in range(self._layout_lista.count()):
+            widget = self._layout_lista.itemAt(i).widget()
+            if isinstance(widget, ComandoCard) and widget.comando_id == comando_id:
+                return widget
+        return None
+
+    def _resaltar(self, comando_id: int) -> None:
+        """La tarjeta recién guardada aparece con un fundido."""
+        tarjeta = self._tarjeta(comando_id)
+        if tarjeta is not None:
+            aparecer(tarjeta, 320)
+
     def nuevo(self) -> None:
         self._abrir_formulario(None)
 
@@ -244,11 +259,13 @@ class ComandosView(QWidget):
         dialogo = ComandoDialog(comando, self)
         if dialogo.exec():
             try:
-                servicio.guardar(dialogo.datos())
+                guardado_id = servicio.guardar(dialogo.datos())
             except ValueError as error:
                 QMessageBox.warning(self, "No se pudo guardar", str(error))
                 return
             self._avisar_cambio()
+            self._resaltar(guardado_id)
+            avisar(f"Comando {'actualizado' if comando_id is not None else 'creado'}")
 
     def _cambiar_activo(self, comando_id: int, activo: bool) -> None:
         servicio.cambiar_activo(comando_id, activo)
@@ -266,5 +283,13 @@ class ComandosView(QWidget):
             QMessageBox.StandardButton.No,
         )
         if respuesta == QMessageBox.StandardButton.Yes:
-            servicio.eliminar(comando_id)
-            self._avisar_cambio()
+            def borrar() -> None:
+                servicio.eliminar(comando_id)
+                self._avisar_cambio()
+                avisar("Comando eliminado", Tipo.ELIMINADO)
+
+            tarjeta = self._tarjeta(comando_id)
+            if tarjeta is None:
+                borrar()
+            else:
+                desvanecer(tarjeta, borrar)

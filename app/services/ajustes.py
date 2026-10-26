@@ -29,6 +29,7 @@ class Clave(StrEnum):
     HORARIO_DIAS = "horario_dias"
     HORARIO_INICIO = "horario_inicio"
     HORARIO_FIN = "horario_fin"
+    TEMA = "tema"
 
 
 _POR_DEFECTO: dict[Clave, Any] = {
@@ -51,6 +52,7 @@ _POR_DEFECTO: dict[Clave, Any] = {
     Clave.HORARIO_DIAS: [0, 1, 2, 3, 4],  # lunes a viernes
     Clave.HORARIO_INICIO: "09:00",
     Clave.HORARIO_FIN: "18:00",
+    Clave.TEMA: "oscuro",  # oscuro | claro | translucido
 }
 
 

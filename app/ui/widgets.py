@@ -234,7 +234,12 @@ class EstadoChip(QFrame):
         self.numero.setText(str(n))
         self.texto.setText(self._singular if n == 1 else self._plural)
 
+    def set_color(self, color: str) -> None:
+        self._color = QColor(color)
+        self.set_activo(self._activo)
+
     def set_activo(self, activo: bool) -> None:
+        self._activo = activo
         r, g, b = self._color.red(), self._color.green(), self._color.blue()
         fondo = 0.28 if activo else 0.13
         borde = 0.95 if activo else 0.4

@@ -15,7 +15,6 @@ from PySide6.QtWidgets import (
     QMainWindow,
     QMessageBox,
     QPushButton,
-    QStackedWidget,
     QVBoxLayout,
     QWidget,
 )
@@ -30,6 +29,9 @@ from app.services.ajustes import Clave
 from app.services.escucha import Escucha
 from app.services.saludo import dias_texto, texto_resumen_dia, texto_saludo
 from app.services.voz import voz
+from app.ui import avisos
+from app.ui.animaciones import PilaAnimada
+from app.ui.apariencia import apariencia, preparar_ventana_principal
 from app.ui.bandeja import Bandeja
 from app.ui.burbuja import BurbujaVoz
 from app.ui.comandos_view import ComandosView
@@ -52,6 +54,7 @@ class MainWindow(QMainWindow):
         self.resize(1240, 740)
         self.setMinimumSize(900, 560)
         self.setWindowIcon(icono_app())
+        preparar_ventana_principal(self)
         self._saliendo = False
         self._resumen_al_apagar_leido = False
 
@@ -69,11 +72,12 @@ class MainWindow(QMainWindow):
             ("Configuración", "configuracion", self.configuracion),
         ]
 
-        self.stack = QStackedWidget()
+        self.stack = PilaAnimada()
         self.nav = QListWidget()
         self.nav.setObjectName("Nav")
         self.nav.setCursor(Qt.CursorShape.PointingHandCursor)
         self.nav.setIconSize(QSize(18, 18))
+        self._iconos_nav = [icono for _, icono, _ in vistas]
         for nombre, icono, vista in vistas:
             self.nav.addItem(QListWidgetItem(icono_menu(icono), nombre))
             self.stack.addWidget(vista)
@@ -117,6 +121,8 @@ class MainWindow(QMainWindow):
         layout.addWidget(sidebar)
         layout.addWidget(self.stack, stretch=1)
         self.setCentralWidget(central)
+        avisos.registrar(central)
+        apariencia().tema_cambiado.connect(self._al_cambiar_tema)
 
         # --- Productividad ---
         self.enfoque = ControladorEnfoque(self)
@@ -173,6 +179,14 @@ class MainWindow(QMainWindow):
         self._al_cambiar_estado_escucha("Micrófono apagado", False)
         if ajustes.obtener(Clave.ESCUCHA_ACTIVA):
             self.escucha.iniciar()
+
+    # --- Apariencia -----------------------------------------------------------
+
+    def _al_cambiar_tema(self, _nombre: str) -> None:
+        # Los iconos del menú se dibujan con los colores del tema.
+        for fila, icono in enumerate(self._iconos_nav):
+            self.nav.item(fila).setIcon(icono_menu(icono))
+        self.pendientes.actualizar_tema()
 
     # --- Racha ----------------------------------------------------------------
 

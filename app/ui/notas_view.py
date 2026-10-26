@@ -20,6 +20,8 @@ from PySide6.QtWidgets import (
 from app.data.models import Nota
 from app.services import notas as servicio
 from app.services.notas import FiltroNotas
+from app.ui.animaciones import aparecer, desvanecer
+from app.ui.avisos import Tipo, avisar
 from app.ui.formato import fecha_hora_corta, tiempo_restante
 from app.ui.nota_dialog import NotaDialog
 from app.ui.widgets import FechaEdit
@@ -217,6 +219,19 @@ class NotasView(QWidget):
             )
         self.resumen.setText(texto)
 
+    def _tarjeta(self, nota_id: int) -> NotaCard | None:
+        for i in range(self._layout_lista.count()):
+            widget = self._layout_lista.itemAt(i).widget()
+            if isinstance(widget, NotaCard) and widget.nota_id == nota_id:
+                return widget
+        return None
+
+    def _resaltar(self, nota_id: int) -> None:
+        """La tarjeta recién guardada aparece con un fundido."""
+        tarjeta = self._tarjeta(nota_id)
+        if tarjeta is not None:
+            aparecer(tarjeta, 320)
+
     def nueva(self) -> None:
         self._abrir_formulario(None)
 
@@ -228,11 +243,13 @@ class NotasView(QWidget):
         dialogo = NotaDialog(nota, self)
         if dialogo.exec():
             try:
-                servicio.guardar(dialogo.datos())
+                guardado_id = servicio.guardar(dialogo.datos())
             except ValueError as error:
                 QMessageBox.warning(self, "No se pudo guardar", str(error))
                 return
             self.recargar()
+            self._resaltar(guardado_id)
+            avisar(f"Nota {'actualizada' if nota_id is not None else 'creada'}")
 
     def eliminar(self, nota_id: int) -> None:
         nota = servicio.obtener(nota_id)
@@ -246,5 +263,13 @@ class NotasView(QWidget):
             QMessageBox.StandardButton.No,
         )
         if respuesta == QMessageBox.StandardButton.Yes:
-            servicio.eliminar(nota_id)
-            self.recargar()
+            def borrar() -> None:
+                servicio.eliminar(nota_id)
+                self.recargar()
+                avisar("Nota eliminada", Tipo.ELIMINADO)
+
+            tarjeta = self._tarjeta(nota_id)
+            if tarjeta is None:
+                borrar()
+            else:
+                desvanecer(tarjeta, borrar)
