@@ -197,22 +197,33 @@ def procesos_en_ejecucion() -> dict[int, str]:
     return procesos
 
 
-def cerrar_procesos(nombres: set[str]) -> int:
-    """Pide cerrarse a los programas (como al pulsar la X; nunca se fuerza, así no
-    se pierde trabajo sin guardar). Devuelve cuántos estaban abiertos."""
+def cerrar_procesos(nombres: set[str], forzar: bool = False) -> int:
+    """Pide cerrarse a los programas (como al pulsar la X, así no se pierde
+    trabajo sin guardar). Con `forzar` los termina aunque no respondan; solo
+    cuando el usuario lo confirma. Devuelve cuántos estaban abiertos."""
     abiertos = set(procesos_en_ejecucion().values())
     cerrados = 0
     for nombre in sorted(nombres - _NO_CERRAR):
         if nombre not in abiertos:
             continue
         subprocess.run(
-            ["taskkill", "/IM", nombre, "/T"],
+            ["taskkill", "/IM", nombre, "/T", *(["/F"] if forzar else [])],
             capture_output=True,
             creationflags=subprocess.CREATE_NO_WINDOW,
             timeout=15,
         )
         cerrados += 1
     return cerrados
+
+
+def esperar_cierre(nombres: set[str], segundos: float = 4.0) -> set[str]:
+    """Espera a que se cierren; devuelve los que siguen abiertos."""
+    limite = time.monotonic() + segundos
+    while True:
+        siguen = nombres & set(procesos_en_ejecucion().values())
+        if not siguen or time.monotonic() > limite:
+            return siguen
+        time.sleep(0.3)
 
 
 _apps_instaladas: list[tuple[str, str]] | None = None
@@ -281,20 +292,28 @@ def proceso_en_primer_plano() -> str | None:
         _kernel32.CloseHandle(proceso)
 
 
-def apps_con_ventana() -> list[str]:
-    """Ejecutables que tienen alguna ventana visible ahora (para elegir apps de ocio)."""
-    nombres: set[str] = set()
+def ventanas_visibles() -> list[tuple[str, str]]:
+    """(ejecutable, título) de cada ventana visible con título."""
+    ventanas: list[tuple[str, str]] = []
     procesos = procesos_en_ejecucion()
 
     @ctypes.WINFUNCTYPE(wintypes.BOOL, wintypes.HWND, wintypes.LPARAM)
     def visitar(ventana, _):
-        if _user32.IsWindowVisible(ventana) and _user32.GetWindowTextLengthW(ventana) > 0:
+        largo = _user32.GetWindowTextLengthW(ventana)
+        if _user32.IsWindowVisible(ventana) and largo > 0:
             pid = wintypes.DWORD()
             _user32.GetWindowThreadProcessId(ventana, ctypes.byref(pid))
             nombre = procesos.get(pid.value)
             if nombre and nombre not in _NO_CERRAR:
-                nombres.add(nombre)
+                titulo = ctypes.create_unicode_buffer(largo + 1)
+                _user32.GetWindowTextW(ventana, titulo, largo + 1)
+                ventanas.append((nombre, titulo.value))
         return True
 
     _user32.EnumWindows(visitar, 0)
-    return sorted(nombres)
+    return ventanas
+
+
+def apps_con_ventana() -> list[str]:
+    """Ejecutables que tienen alguna ventana visible ahora (para elegir apps de ocio)."""
+    return sorted({nombre for nombre, _ in ventanas_visibles()})

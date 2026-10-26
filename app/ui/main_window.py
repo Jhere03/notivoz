@@ -26,12 +26,14 @@ from app.services import comandos as servicio_comandos
 from app.services import pendientes as servicio_pendientes
 from app.services import rutinas as servicio_rutinas
 from app.services.ajustes import Clave
+from app.services.audio import reproductor
 from app.services.escucha import Escucha
 from app.services.saludo import dias_texto, texto_resumen_dia, texto_saludo
 from app.services.voz import voz
 from app.ui import avisos
 from app.ui.animaciones import PilaAnimada
 from app.ui.apariencia import apariencia, preparar_ventana_principal
+from app.ui.asistente_voz import ControladorIA
 from app.ui.bandeja import Bandeja
 from app.ui.burbuja import BurbujaVoz
 from app.ui.comandos_view import ComandosView
@@ -157,6 +159,14 @@ class MainWindow(QMainWindow):
         self.escucha.cierre_detectado.connect(self._cierre_por_voz)
         self._escucha_antes_de_prueba = False
         self._probando_microfono = False
+        self.escucha.interrupcion.connect(self.burbuja.escuchar)
+
+        # --- IA: pedidos libres por voz ---
+        self.ia = ControladorIA(self.escucha, self)
+        self.ia.pensando.connect(lambda si: self.burbuja.ejecutar() if si else self.burbuja.ocultar())
+        self.ia.tareas_cambiaron.connect(self.pendientes.recargar)
+        self.ia.notas_cambiaron.connect(self.notas.recargar)
+        self.ia.activar_modo.connect(self.ejecutar_comando)
 
         # --- Señales de las vistas ---
         self.pendientes.tarea_realizada.connect(self._celebrar)
@@ -171,6 +181,7 @@ class MainWindow(QMainWindow):
         self.configuracion.escucha_config_cambiada.connect(self._reiniciar_escucha)
         self.configuracion.modelo_instalado.connect(self._reiniciar_escucha)
         self.configuracion.personalidad_cambiada.connect(self.comandos.recargar)
+        self.configuracion.ia_cambiada.connect(self.ia.actualizar)
 
         # Al apagar Windows: resumen del día.
         QApplication.instance().commitDataRequest.connect(self._al_apagar_windows)
@@ -288,6 +299,7 @@ class MainWindow(QMainWindow):
 
     def _configurar_escucha(self) -> None:
         self.escucha.dispositivo = ajustes.obtener(Clave.MICROFONO) or None
+        reproductor().salida = ajustes.obtener(Clave.SALIDA_VOZ)
         self._recargar_frases()
 
     def _recargar_frases(self) -> None:

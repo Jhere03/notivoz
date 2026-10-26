@@ -30,6 +30,9 @@ class Clave(StrEnum):
     HORARIO_INICIO = "horario_inicio"
     HORARIO_FIN = "horario_fin"
     TEMA = "tema"
+    SALIDA_VOZ = "salida_voz"
+    IA_ACTIVA = "ia_activa"
+    IA_USO = "ia_uso"
 
 
 _POR_DEFECTO: dict[Clave, Any] = {
@@ -53,6 +56,9 @@ _POR_DEFECTO: dict[Clave, Any] = {
     Clave.HORARIO_INICIO: "09:00",
     Clave.HORARIO_FIN: "18:00",
     Clave.TEMA: "oscuro",  # oscuro | claro | translucido
+    Clave.SALIDA_VOZ: "",  # "" = la salida de audio predeterminada de Windows
+    Clave.IA_ACTIVA: False,
+    Clave.IA_USO: {},  # {"mes": "2026-10", "usd": 0.0, "pedidos": 0}
 }
 
 

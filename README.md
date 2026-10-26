@@ -32,6 +32,7 @@ cd notivoz
 python -m venv .venv
 .venv\Scripts\activate
 pip install -r requirements.txt
+pip install --no-deps -r requirements-ia.txt
 python main.py
 ```
 
@@ -70,6 +71,27 @@ En VS Code basta con abrir la carpeta y pulsar **F5**. La configuración «Notiv
   - Sin conexión, Notivoz usa automáticamente la voz de Windows en español (*Microsoft Helena*).
   - Los audios ya generados se guardan en `%APPDATA%\Notivoz\voz_cache` (máximo 300), así las frases repetidas suenan al instante y también sin internet.
   - Si prefieres no usar internet para la voz, elige **«Voz de Windows»**.
+
+### Asistente con IA
+
+- Di «Notivoz» y pide lo que quieras con tus palabras: «recuérdame pagar el internet el viernes a las 9», «¿qué tengo pendiente con ACME?», «pasa a realizado lo del contrato», «abre Spotify», «activa el modo relax».
+- Tu voz se convierte en texto **en tu equipo** con Whisper (sin internet). Solo el texto del pedido va a Claude Haiku (Anthropic), que decide qué hacer con las herramientas de Notivoz.
+- Conversación fluida: después de cada respuesta tienes unos segundos para seguir hablando sin repetir «Notivoz». También puedes hablarle encima mientras responde: se calla y toma lo que dijiste (cancelación de eco: resta su propia voz de lo que capta el micrófono). «Notivoz», «espera» o «silencio» también lo callan.
+- Si haces pausas para pensar («…y», «o sea…», «este…»), Notivoz espera a que termines antes de responder.
+- Solo responde sobre Notivoz; cualquier otra pregunta la rechaza.
+- **Puesta en marcha** (Configuración → Asistente con IA):
+  1. Crea una clave en [console.anthropic.com](https://console.anthropic.com) → API Keys (carga crédito y pon un límite de gasto mensual).
+  2. Pégala en Notivoz y pulsa «Guardar clave»: se comprueba sin gastar y se guarda cifrada en el Administrador de credenciales de Windows.
+  3. Descarga Whisper (≈460 MB, una sola vez) y marca «Activar el asistente con IA».
+- **Seguridad:**
+  - Notivoz no trae ninguna clave: cada persona usa la suya, y nunca se guarda en archivos, en la base de datos ni en el registro de la app.
+  - Las peticiones solo van a `api.anthropic.com` (fijado en el código).
+  - La IA solo puede usar una lista cerrada de acciones de Notivoz, y cada dato se valida otra vez antes de ejecutarse.
+  - **Eliminar siempre requiere tu «sí»**: Notivoz pregunta «¿Seguro que elimino…?» y basta con «sí», «dale» u «ok». Puedes eliminar varias cosas de una vez («elimina todas mis tareas»). Un «no» nunca elimina, y la IA no puede confirmar por sí sola.
+  - Hay un máximo de cambios por pedido. Solo abre apps del menú Inicio y sin argumentos: puede abrir una consola, pero nunca escribe ni ejecuta nada en ella. Nunca abre desinstaladores ni el editor del registro.
+  - Al cerrar una app comprueba que de verdad se cerró; forzar el cierre (podría perder cambios sin guardar) solo lo hace si tú lo confirmas.
+  - El modelo de Whisper se descarga de una versión fija y se verifica con su huella SHA-256.
+- **Límite de uso (beta):** 1 USD al mes, fijo. Al llegar, Notivoz deja de usar la IA hasta el mes siguiente; los comandos de voz siguen funcionando.
 
 ### Apariencia
 

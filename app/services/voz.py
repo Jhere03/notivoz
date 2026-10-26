@@ -10,16 +10,20 @@ la interfaz; los textos se encolan y se leen uno detrás de otro.
 """
 
 import asyncio
-import ctypes
 import hashlib
 import logging
 import queue
 import threading
 import time
 import warnings
+import wave
 from pathlib import Path
 
+import numpy as np
+
 from app.config import data_dir
+from app.services import mp3
+from app.services.audio import remuestrear, reproductor
 
 log = logging.getLogger(__name__)
 
@@ -45,6 +49,8 @@ _TIEMPO_MAXIMO_RED = 10  # segundos para generar un audio
 _PAUSA_TRAS_FALLO = 60  # sin internet: no reintentar la voz neural durante este tiempo
 _MAX_CACHE = 300  # audios guardados como máximo
 _IDIOMA_ESPANOL = 0x0A  # LCID principal del español en Windows
+_SAPI_16KHZ_16BIT_MONO = 18
+_SAPI_CREAR_ARCHIVO = 3
 
 
 class Voz:
@@ -56,6 +62,9 @@ class Voz:
         self._neural_pausada_hasta = 0.0
         self._hablando = False
         self._silencio_hasta = 0.0
+        # Frase que suena ahora (para no confundir la propia voz con una interrupción).
+        self.texto_actual = ""
+        self._interrumpida = False
         self._sapi = None
         self._cola: queue.Queue[str | None] = queue.Queue()
         self._hilo = threading.Thread(target=self._trabajar, name="Voz", daemon=True)
@@ -68,6 +77,20 @@ class Voz:
 
     def cerrar(self) -> None:
         self._cola.put(None)
+
+    def detener(self) -> None:
+        """Calla ya: descarta lo que estaba en cola y corta la frase en curso
+        (la voz de Windows de respaldo termina la frase que estaba diciendo)."""
+        while True:
+            try:
+                if self._cola.get_nowait() is None:
+                    self._cola.put(None)  # respetar el cierre pedido
+                    break
+            except queue.Empty:
+                break
+        if self._hablando:
+            self._interrumpida = True
+            reproductor().detener()
 
     @property
     def hablando(self) -> bool:
@@ -91,12 +114,16 @@ class Voz:
         try:
             while (texto := self._cola.get()) is not None:
                 self._hablando = True
+                self.texto_actual = texto
                 try:
                     if not (self._usar_neural() and self._hablar_neural(texto)):
                         self._hablar_windows(texto)
                 finally:
                     self._hablando = False
-                    self._silencio_hasta = time.monotonic() + 0.7
+                    self.texto_actual = ""
+                    # Tras cortarla porque le hablaste, escuchar ya (sin esperar el eco).
+                    self._silencio_hasta = 0.0 if self._interrumpida else time.monotonic() + 0.7
+                    self._interrumpida = False
         finally:
             comtypes.CoUninitialize()
 
@@ -115,7 +142,12 @@ class Voz:
             if not archivo.exists():
                 _generar_audio(texto, voz, velocidad, volumen, archivo)
                 _limpiar_cache()
-            _reproducir(archivo)
+            pcm, frecuencia, canales = mp3.decodificar(archivo.read_bytes())
+            muestras = np.frombuffer(pcm, dtype=np.int16)
+            if canales == 2:
+                muestras = muestras.reshape(-1, 2).mean(axis=1).astype(np.int16)
+            reproductor().reproducir(remuestrear(muestras, frecuencia))
+            archivo.touch()  # para la limpieza: lo usado recientemente se conserva
             return True
         except Exception as error:
             log.warning("Voz neural no disponible (%s); se usa la voz de Windows.", error)
@@ -131,9 +163,29 @@ class Voz:
                 _elegir_voz_espanol(self._sapi)
             self._sapi.Rate = max(-10, min(10, int(self.velocidad)))
             self._sapi.Volume = max(0, min(100, int(self.volumen)))
-            self._sapi.Speak(texto)
+            reproductor().reproducir(self._sapi_a_pcm(texto))
         except Exception:
             log.exception("Error al leer en voz alta: %r", texto)
+
+
+    def _sapi_a_pcm(self, texto: str) -> np.ndarray:
+        """La voz de Windows se graba a un WAV de 16 kHz y lo reproduce Notivoz
+        (así también se puede interrumpir y cancelar su eco)."""
+        import comtypes.client
+
+        ruta = _carpeta_cache() / "sapi.wav"
+        flujo = comtypes.client.CreateObject("SAPI.SpFileStream")
+        formato = comtypes.client.CreateObject("SAPI.SpAudioFormat")
+        formato.Type = _SAPI_16KHZ_16BIT_MONO
+        flujo.Format = formato
+        flujo.Open(str(ruta), _SAPI_CREAR_ARCHIVO)
+        try:
+            self._sapi.AudioOutputStream = flujo
+            self._sapi.Speak(texto)
+        finally:
+            flujo.Close()
+        with wave.open(str(ruta)) as archivo:
+            return np.frombuffer(archivo.readframes(archivo.getnframes()), dtype=np.int16)
 
 
 # --- Utilidades ---------------------------------------------------------------
@@ -167,24 +219,6 @@ def _limpiar_cache() -> None:
     audios = sorted(_carpeta_cache().glob("*.mp3"), key=lambda a: a.stat().st_mtime)
     for audio in audios[:-_MAX_CACHE]:
         audio.unlink(missing_ok=True)
-
-
-def _reproducir(archivo: Path) -> None:
-    """Reproduce un MP3 con el reproductor interno de Windows (MCI) y espera a que termine."""
-    mci = ctypes.windll.winmm.mciSendStringW
-    alias = "notivoz_voz"
-
-    def enviar(comando: str) -> None:
-        error = mci(comando, None, 0, 0)
-        if error:
-            raise OSError(f"MCI error {error} en «{comando.split()[0]}»")
-
-    enviar(f'open "{archivo}" type mpegvideo alias {alias}')
-    try:
-        enviar(f"play {alias} wait")
-    finally:
-        mci(f"close {alias}", None, 0, 0)
-    archivo.touch()  # para la limpieza: lo usado recientemente se conserva
 
 
 def _elegir_voz_espanol(sapi) -> None:

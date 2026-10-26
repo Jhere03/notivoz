@@ -27,6 +27,7 @@ from PySide6.QtWidgets import (
 
 from app.services import ajustes, inicio_windows, lanzador, modelo_voz
 from app.services.ajustes import Clave
+from app.services.audio import nombre_legible, nombres_dispositivos, reproductor
 from app.services.escucha import NOMBRE_ACTIVACION, dispositivos_entrada
 from app.services.microfono import PruebaMicrofono
 from app.services.personalidad import Personalidad
@@ -34,6 +35,7 @@ from app.services.rutinas import DIAS_CORTOS
 from app.services.voz import VOCES_NEURALES, VOZ_WINDOWS, voz
 from app.ui import theme
 from app.ui.apariencia import acrilico_disponible, apariencia
+from app.ui.ia_config import SeccionIA
 from app.ui.widgets import HoraEdit
 
 
@@ -116,6 +118,7 @@ class ConfiguracionView(QWidget):
     # True al empezar la prueba de micrófono (pausar la escucha), False al terminar.
     prueba_microfono_cambiada = Signal(bool)
     personalidad_cambiada = Signal()
+    ia_cambiada = Signal()
     _descarga_progreso = Signal(int, int)
     _descarga_terminada = Signal(str)  # mensaje de error, o "" si fue bien
 
@@ -244,6 +247,13 @@ class ConfiguracionView(QWidget):
         l_voz.addWidget(self._fila("Tu nombre", self.nombre))
         l_voz.addWidget(self._fila("Velocidad", self.velocidad, self.etq_velocidad))
         l_voz.addWidget(self._fila("Volumen", self.volumen, self.etq_volumen))
+        self.salida = QComboBox()
+        self.salida.addItem("Salida predeterminada de Windows", "")
+        for nombre in nombres_dispositivos(entrada=False):
+            self.salida.addItem(nombre_legible(nombre), nombre)
+        self.salida.setCurrentIndex(max(self.salida.findData(ajustes.obtener(Clave.SALIDA_VOZ)), 0))
+        self.salida.currentIndexChanged.connect(self._cambiar_salida)
+        l_voz.addWidget(self._fila("Salida", self.salida))
         fila_probar = QHBoxLayout()
         fila_probar.addWidget(probar)
         fila_probar.addStretch()
@@ -403,7 +413,9 @@ class ConfiguracionView(QWidget):
         columna = QVBoxLayout(contenido)
         columna.setContentsMargins(0, 0, 6, 0)
         columna.setSpacing(14)
-        for marco in (seccion_tema, inicio, bandeja, seccion_voz, seccion_escucha, productividad):
+        self.seccion_ia = SeccionIA()
+        self.seccion_ia.cambiada.connect(self.ia_cambiada)
+        for marco in (seccion_tema, inicio, bandeja, seccion_voz, seccion_escucha, self.seccion_ia, productividad):
             marco.setMaximumWidth(760)
             columna.addWidget(marco)
         columna.addStretch()
@@ -568,6 +580,14 @@ class ConfiguracionView(QWidget):
             self.modelo_instalado.emit()
         self._actualizar_estado_modelo()
 
+    def _cambiar_salida(self) -> None:
+        nombre = self.salida.currentData()
+        ajustes.guardar(Clave.SALIDA_VOZ, nombre)
+        reproductor().salida = nombre
+        self.detener_prueba_microfono()
+        # La escucha reproduce la voz por su flujo de audio: reabrirlo con la nueva salida.
+        self.escucha_config_cambiada.emit()
+
     def _cambiar_microfono(self) -> None:
         self.detener_prueba_microfono()
         ajustes.guardar(Clave.MICROFONO, self.microfono.currentData())
@@ -580,7 +600,7 @@ class ConfiguracionView(QWidget):
         # La escucha de comandos se pausa para que el eco no dispare nada.
         self.prueba_microfono_cambiada.emit(True)
         try:
-            self._prueba_mic.iniciar(self.microfono.currentData() or None)
+            self._prueba_mic.iniciar(self.microfono.currentData() or None, reproductor().salida or None)
         except Exception as error:
             self.prueba_microfono_cambiada.emit(False)
             self.btn_probar_mic.blockSignals(True)
