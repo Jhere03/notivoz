@@ -57,6 +57,8 @@ class Pendiente(Base):
     importancia: Mapped[int] = mapped_column(Integer, default=Importancia.MEDIA)
     fecha_ingreso: Mapped[date] = mapped_column(Date, default=date.today)
     estado: Mapped[str] = mapped_column(String(20), default=Estado.PENDIENTE)
+    # Se fija al pasar a Realizado y se borra si vuelve a otro estado.
+    fecha_realizado: Mapped[datetime | None] = mapped_column(DateTime)
     creado_en: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
     actualizado_en: Mapped[datetime] = mapped_column(
         DateTime, server_default=func.now(), onupdate=func.now()
@@ -99,6 +101,8 @@ class Comando(Base):
     # Lo que Notivoz dice al terminar de abrir todo; vacío = «<Frase> activado».
     respuesta: Mapped[str] = mapped_column(String(200), default="")
     activo: Mapped[bool] = mapped_column(Boolean, default=True)
+    # Ejecutables que abrió la última vez (separados por «;»), para poder cerrarlos.
+    procesos: Mapped[str] = mapped_column(Text, default="")
     creado_en: Mapped[datetime] = mapped_column(DateTime, default=datetime.now)
 
     apps: Mapped[list[ComandoApp]] = relationship(
@@ -119,3 +123,35 @@ class ComandoApp(Base):
     orden: Mapped[int] = mapped_column(Integer, default=0)
 
     comando: Mapped[Comando] = relationship(back_populates="apps")
+
+
+class AccionRutina(StrEnum):
+    EJECUTAR_COMANDO = "ejecutar_comando"
+    LEER_PENDIENTES = "leer_pendientes"
+    RESUMEN_DIA = "resumen_dia"
+
+    @property
+    def etiqueta(self) -> str:
+        return {
+            "ejecutar_comando": "Ejecutar un comando",
+            "leer_pendientes": "Leer mis pendientes",
+            "resumen_dia": "Leer el resumen del día",
+        }[self]
+
+
+class Rutina(Base):
+    """Algo que Notivoz hace solo, ciertos días a cierta hora."""
+
+    __tablename__ = "rutinas"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    nombre: Mapped[str] = mapped_column(String(120))
+    accion: Mapped[str] = mapped_column(String(30), default=AccionRutina.LEER_PENDIENTES)
+    comando_id: Mapped[int | None] = mapped_column(ForeignKey("comandos.id", ondelete="SET NULL"))
+    # Días de la semana separados por comas: 0 = lunes … 6 = domingo.
+    dias: Mapped[str] = mapped_column(String(20), default="0,1,2,3,4")
+    hora: Mapped[str] = mapped_column(String(5), default="09:00")  # HH:MM
+    activo: Mapped[bool] = mapped_column(Boolean, default=True)
+    ultima_ejecucion: Mapped[date | None] = mapped_column(Date)
+
+    comando: Mapped[Comando | None] = relationship()

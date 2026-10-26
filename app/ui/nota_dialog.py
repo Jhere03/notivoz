@@ -2,8 +2,7 @@
 
 from datetime import datetime, timedelta
 
-from PySide6.QtCore import QDate, QRegularExpression, Qt, QTime
-from PySide6.QtGui import QRegularExpressionValidator
+from PySide6.QtCore import QDate, QTime
 from PySide6.QtWidgets import (
     QCheckBox,
     QDialog,
@@ -21,28 +20,7 @@ from PySide6.QtWidgets import (
 
 from app.data.models import Nota
 from app.services.notas import DatosNota
-from app.ui.widgets import FechaEdit
-
-
-class HoraEdit(QLineEdit):
-    """Campo de hora HH:MM (24 horas)."""
-
-    def __init__(self, parent=None):
-        super().__init__(parent)
-        self.setInputMask("00:00")
-        self.setValidator(
-            QRegularExpressionValidator(QRegularExpression(r"^([01]\d|2[0-3]):[0-5]\d$"), self)
-        )
-        self.setFixedWidth(90)
-        self.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.setToolTip("Hora en formato 24 h, por ejemplo 15:30")
-
-    def hora(self) -> QTime | None:
-        hora = QTime.fromString(self.text(), "HH:mm")
-        return hora if hora.isValid() else None
-
-    def setHora(self, hora: QTime) -> None:
-        self.setText(hora.toString("HH:mm"))
+from app.ui.widgets import FechaEdit, HoraEdit
 
 
 class NotaDialog(QDialog):

@@ -6,6 +6,7 @@ from typing import Any
 
 from app.data.database import session_scope
 from app.data.models import Ajuste
+from app.services.personalidad import Frases, Personalidad
 from app.services.voz import VOZ_POR_DEFECTO
 
 
@@ -20,6 +21,14 @@ class Clave(StrEnum):
     VOZ_NOMBRE = "voz_nombre"
     ESCUCHA_ACTIVA = "escucha_activa"
     MICROFONO = "microfono"
+    PERSONALIDAD = "personalidad"
+    CELEBRAR_RACHA = "celebrar_racha"
+    RESUMEN_AL_APAGAR = "resumen_al_apagar"
+    AVISO_OCIO = "aviso_ocio"
+    APPS_OCIO = "apps_ocio"
+    HORARIO_DIAS = "horario_dias"
+    HORARIO_INICIO = "horario_inicio"
+    HORARIO_FIN = "horario_fin"
 
 
 _POR_DEFECTO: dict[Clave, Any] = {
@@ -33,6 +42,15 @@ _POR_DEFECTO: dict[Clave, Any] = {
     Clave.VOZ_NOMBRE: VOZ_POR_DEFECTO,  # "" = solo la voz de Windows
     Clave.ESCUCHA_ACTIVA: False,  # el micrófono solo se enciende si el usuario lo pide
     Clave.MICROFONO: "",  # "" = el predeterminado de Windows
+    Clave.PERSONALIDAD: "amigable",  # formal | amigable | divertido
+    Clave.CELEBRAR_RACHA: True,
+    Clave.RESUMEN_AL_APAGAR: True,
+    # Aviso amable si abres apps de ocio en horario de trabajo (desactivado al inicio).
+    Clave.AVISO_OCIO: False,
+    Clave.APPS_OCIO: ["steam.exe", "steamwebhelper.exe", "epicgameslauncher.exe", "spotify.exe", "netflix.exe"],
+    Clave.HORARIO_DIAS: [0, 1, 2, 3, 4],  # lunes a viernes
+    Clave.HORARIO_INICIO: "09:00",
+    Clave.HORARIO_FIN: "18:00",
 }
 
 
@@ -50,3 +68,8 @@ def obtener(clave: Clave) -> Any:
 def guardar(clave: Clave, valor: Any) -> None:
     with session_scope() as s:
         s.merge(Ajuste(clave=str(clave), valor=json.dumps(valor)))
+
+
+def frases_actuales() -> Frases:
+    """Las frases de Notivoz con la personalidad y el nombre configurados."""
+    return Frases(Personalidad(obtener(Clave.PERSONALIDAD)), obtener(Clave.NOMBRE))

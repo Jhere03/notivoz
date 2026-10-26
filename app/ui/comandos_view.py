@@ -15,6 +15,7 @@ from PySide6.QtWidgets import (
 )
 
 from app.data.models import Comando
+from app.services import ajustes
 from app.services import comandos as servicio
 from app.services.escucha import NOMBRE_ACTIVACION
 from app.ui.comando_dialog import ComandoDialog, icono_de
@@ -24,6 +25,7 @@ _MAX_CHIPS = 6
 
 class ComandoCard(QFrame):
     ejecutar = Signal(int)
+    cerrar = Signal(int)
     editar = Signal(int)
     eliminar = Signal(int)
     activo_cambiado = Signal(int, bool)
@@ -46,12 +48,20 @@ class ComandoCard(QFrame):
         ejecutar.setCursor(Qt.CursorShape.PointingHandCursor)
         ejecutar.setToolTip("Abrir ahora todas sus aplicaciones")
         ejecutar.clicked.connect(lambda: self.ejecutar.emit(self.comando_id))
+        cerrar = QPushButton("■  Cerrar")
+        cerrar.setCursor(Qt.CursorShape.PointingHandCursor)
+        cerrar.setToolTip(
+            "Cierra las aplicaciones que abrió este comando (como al pulsar la X). "
+            f"También puedes decir «{NOMBRE_ACTIVACION}, cierra {comando.frase}»."
+        )
+        cerrar.clicked.connect(lambda: self.cerrar.emit(self.comando_id))
 
         arriba = QHBoxLayout()
         arriba.setSpacing(10)
         arriba.addWidget(frase, stretch=1)
         arriba.addWidget(activo)
         arriba.addWidget(ejecutar)
+        arriba.addWidget(cerrar)
         for texto, senal in (("Editar", self.editar), ("Eliminar", self.eliminar)):
             boton = QPushButton(texto)
             boton.setObjectName("Enlace")
@@ -77,7 +87,12 @@ class ComandoCard(QFrame):
             chips.addWidget(mas)
         chips.addStretch()
 
-        respuesta = QLabel(f"Responde: «{servicio.respuesta_de(comando)}»")
+        if comando.respuesta.strip():
+            texto_respuesta = f"Responde: «{comando.respuesta.strip()}»"
+        else:
+            ejemplo = servicio.respuesta_de(comando, ajustes.frases_actuales())
+            texto_respuesta = f"Responde según tu personalidad, por ejemplo: «{ejemplo}»"
+        respuesta = QLabel(texto_respuesta)
         respuesta.setObjectName("NotaContenido")
 
         layout = QVBoxLayout(self)
@@ -108,6 +123,7 @@ class ComandosView(QWidget):
     escucha_pedida = Signal(bool)
     comandos_cambiaron = Signal()
     ejecutar = Signal(int)
+    cerrar = Signal(int)
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -141,7 +157,8 @@ class ComandosView(QWidget):
         ayuda = QLabel(
             f"Di «{NOMBRE_ACTIVACION}» y luego la frase, por ejemplo «{NOMBRE_ACTIVACION}, modo trabajo». "
             f"También puedes decir solo «{NOMBRE_ACTIVACION}», esperar el pitido y decir la frase. "
-            "Cuando todas las aplicaciones estén abiertas, Notivoz te lo dirá."
+            "Cuando todas las aplicaciones estén abiertas, Notivoz te lo dirá. "
+            f"Para cerrarlas di «{NOMBRE_ACTIVACION}, cierra modo relax» o usa el botón ■ Cerrar."
         )
         ayuda.setObjectName("Ayuda")
         ayuda.setWordWrap(True)
@@ -195,6 +212,7 @@ class ComandosView(QWidget):
         for comando in comandos:
             card = ComandoCard(comando)
             card.ejecutar.connect(self.ejecutar.emit)
+            card.cerrar.connect(self.cerrar.emit)
             card.editar.connect(self.editar)
             card.eliminar.connect(self.eliminar)
             card.activo_cambiado.connect(self._cambiar_activo)

@@ -1,9 +1,9 @@
-"""Reconocimiento de voz offline (Vosk) para los comandos: «Notivoz, modo trabajo».
+"""Reconocimiento de voz offline (Vosk) para los comandos: «Notivoz, modo relax».
 
 Escucha el micrófono en un hilo propio con una gramática cerrada: solo puede
-"oír" la palabra de activación y las frases de los comandos, lo que lo hace
-preciso y evita que cualquier conversación dispare algo. Mientras Notivoz habla,
-no escucha (para no activarse con su propia voz).
+"oír" la palabra de activación y las frases de los comandos (y su cierre), lo
+que lo hace preciso y evita que cualquier conversación dispare algo. Mientras
+Notivoz habla, no escucha (para no activarse con su propia voz).
 """
 
 import json
@@ -43,7 +43,7 @@ mira oye espera vale claro sea dame pon quita abre cierra música video casa
 
 _FRECUENCIA = FRECUENCIA
 _CONFIANZA_MINIMA = 0.55
-_SEGUNDOS_TRAS_ACTIVACION = 3  # tras decir solo «Notivoz», tiempo para decir el comando
+_SEGUNDOS_TRAS_ACTIVACION = 5  # tras decir solo «Notivoz», tiempo para decir el comando
 
 _modelo = None
 _candado_modelo = threading.Lock()
@@ -84,8 +84,13 @@ def dispositivos_entrada() -> list[str]:
     ]
 
 
+# «Notivoz, cierra modo relax»: palabras para cerrar lo que abrió un comando.
+VERBOS_CIERRE = ("cierra", "termina", "apaga", "fin del")
+
+
 class Escucha(QObject):
     comando_detectado = Signal(int)
+    cierre_detectado = Signal(int)  # «cierra modo relax»
     # Se oyó «Notivoz» (también a mitad de frase, para reaccionar enseguida).
     activacion_oida = Signal()
     estado_cambiado = Signal(str, bool)  # texto para mostrar, ¿escuchando?
@@ -136,6 +141,8 @@ class Escucha(QObject):
         frases = [PALABRA_ACTIVACION]
         for frase in validas:
             frases += [frase, f"{PALABRA_ACTIVACION} {frase}"]
+            frases += [f"{PALABRA_ACTIVACION} {verbo} {frase}" for verbo in VERBOS_CIERRE]
+            frases += [f"{verbo} {frase}" for verbo in VERBOS_CIERRE]
         relleno = [p for p in dict.fromkeys(_RELLENO) if modelo.vosk_model_find_word(p) >= 0]
         return frases + relleno + ["[unk]"], validas
 
@@ -213,7 +220,7 @@ class Escucha(QObject):
                     continue
 
                 # Todo comando empieza con «Notivoz»: o en la misma frase
-                # («Notivoz, modo trabajo») o justo antes («Notivoz» … «modo trabajo»).
+                # («Notivoz, modo relax») o justo antes («Notivoz» … «modo relax»).
                 ahora = time.monotonic()
                 if texto.startswith(PALABRA_ACTIVACION):
                     frase = texto[len(PALABRA_ACTIVACION):].strip()
@@ -227,13 +234,25 @@ class Escucha(QObject):
                 else:
                     continue
 
-                if frase in validas:
+                if self._emitir_comando(frase, validas):
                     armado_hasta = 0.0
-                    log.info("Comando de voz reconocido: «%s»", frase)
-                    self.comando_detectado.emit(validas[frase])
         self.nivel = 0.0
         log.info("Escucha de comandos detenida")
         self.estado_cambiado.emit("Micrófono apagado", False)
+
+    def _emitir_comando(self, frase: str, validas: dict[str, int]) -> bool:
+        """Si la frase es un comando («modo relax») o su cierre («cierra modo
+        relax»), lo avisa y devuelve True."""
+        if frase in validas:
+            log.info("Comando de voz reconocido: «%s»", frase)
+            self.comando_detectado.emit(validas[frase])
+            return True
+        for verbo in VERBOS_CIERRE:
+            if frase.startswith(f"{verbo} ") and frase[len(verbo) + 1:] in validas:
+                log.info("Cierre de comando reconocido: «%s»", frase)
+                self.cierre_detectado.emit(validas[frase[len(verbo) + 1:]])
+                return True
+        return False
 
     @staticmethod
     def _texto_confiable(resultado: dict) -> str:

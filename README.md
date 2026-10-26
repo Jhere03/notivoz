@@ -13,7 +13,11 @@ Hecho con **Python**, **PySide6 (Qt)** y **SQLite**.
 | Icono en la bandeja del sistema, inicio con Windows y lectura de pendientes por voz | ✅ Fase 3 |
 | Panel de comandos: cada frase abre una lista de aplicaciones | ✅ Fase 4 |
 | Reconocimiento de voz offline (Vosk), por ejemplo «Notivoz, modo trabajo» | ✅ Fase 5 |
+| Personalidad (formal, amigable o divertido) y comandos que también cierran | ✅ |
+| Correo de «tarea realizada» listo para copiar, fecha de culminación | ✅ |
+| Rutinas por horario, modo enfoque, racha, prioridad sugerida, resumen al apagar y aviso de ocio | ✅ |
 | Ejecutable `.exe` e instalador | 🔜 Fase 6 |
+| Sincronización con el celular | 🔜 Más adelante |
 
 ## Requisitos
 
@@ -35,7 +39,7 @@ En VS Code basta con abrir la carpeta y pulsar **F5**. La configuración «Notiv
 
 ## Uso
 
-### Pendientes
+### Mis tareas
 
 - **Clientes** abre el administrador de clientes, donde puedes agregar, editar y eliminar. Al eliminar un cliente, sus tareas se conservan y quedan sin cliente.
 - **+ Nueva tarea** o `Ctrl+N` para agregar una. El cliente se elige de la lista registrada en **Clientes**.
@@ -44,6 +48,11 @@ En VS Code basta con abrir la carpeta y pulsar **F5**. La configuración «Notiv
 - **Doble clic** o `Enter` sobre una fila para editarla.
 - **Clic derecho** para marcar como Pendiente / En proceso / Realizado o para eliminar.
 - `Supr` elimina el pendiente seleccionado (pide confirmación).
+- Al pasar una tarea a **Realizado** se guarda su **fecha de culminación** (columna *Culminado*). Si vuelve a otro estado, la fecha se borra.
+- Junto al estado *Realizado* aparece un icono **✉**: abre el **correo de tarea realizada**, con asunto y mensaje formales listos para copiar (saludo según la hora, cliente, fecha de culminación, descripción y tu firma). Tiene un botón **Copiar** para el asunto, otro para el mensaje, y **Otra versión** para cambiar las frases. No envía nada: solo prepara el texto.
+- **Prioridad sugerida:** si una tarea lleva una semana esperando (dos si ya es Alta), aparece una flecha **↑** junto a su importancia. Con clic derecho → *Subir importancia* la subes un nivel.
+- **🔥 Racha:** días seguidos en los que terminaste al menos una tarea. Al terminar la primera del día, Notivoz lo celebra.
+- Clic derecho → **🎯 Modo enfoque en esta tarea**: eliges los minutos, la tarea pasa a *En proceso* y los recordatorios esperan hasta que termines. Al acabar, Notivoz te lo dice y pregunta (con **Sí / No**) si la marca como realizada. El tiempo restante se ve en la barra lateral; clic ahí para terminarlo antes.
 - Clic en un encabezado para ordenar por esa columna. Un tercer clic vuelve al orden por defecto: en proceso, luego pendientes por importancia y al final los realizados.
 
 ### Notas y recordatorios
@@ -66,12 +75,13 @@ En VS Code basta con abrir la carpeta y pulsar **F5**. La configuración «Notiv
 
 - Notivoz vive en la **bandeja del sistema**, junto al reloj. Al cerrar la ventana sigue funcionando ahí y los recordatorios siguen sonando.
   - Clic en el icono abre la ventana.
-  - Clic derecho muestra: Nueva tarea, Nueva nota, leeme y **Salir de Notivoz**.
+  - Clic derecho muestra: Nueva tarea, Nueva nota, leeme, Resumen del día y **Salir de Notivoz**.
 - En **Configuración** puedes activar:
   - **Iniciar con Windows.** Se guarda en el registro del usuario (`HKCU\Software\Microsoft\Windows\CurrentVersion\Run`), sin permisos de administrador.
   - **Arrancar oculto en la bandeja.**
-  - **Leer en voz alta** tus tareas pendientes y en proceso (las 5 más importantes) y los recordatorios de hoy. Por ejemplo: «Buenos días, Jhair. Tienes 3 tareas pendientes y 1 en proceso. Tus tareas: …».
+  - **Leer en voz alta** cuántas tareas tienes pendientes y en proceso, y de qué cliente (sin títulos ni descripciones), y los recordatorios de hoy. Por ejemplo: «Buenos días, Erick. Tienes 4 tareas pendientes: 2 de EFE, 1 de Acme SAC y 1 sin cliente. Y 1 en proceso de EFE.».
   - Tu nombre para el saludo, la velocidad y el volumen de la voz, y un botón para probarla.
+  - La **personalidad** de Notivoz (Configuración → Voz): *Formal* (trata de usted), *Amigable* o *Divertido*. Cambia las frases que dice Notivoz.
 - Notivoz no se abre dos veces: si ya está en la bandeja y lo vuelves a ejecutar, solo se muestra la ventana.
 - Hay un registro de eventos y errores en `%APPDATA%\Notivoz\notivoz.log`.
 
@@ -82,17 +92,18 @@ En VS Code basta con abrir la carpeta y pulsar **F5**. La configuración «Notiv
   - **Archivos** `.exe` / `.lnk`.
   - **Webs o enlaces** (`https://…`, `steam://…`).
   - Las apps se abren en el orden de la lista; puedes arrastrarlas para reordenarlas.
-- Cada comando tiene una **respuesta** que Notivoz dice cuando **todas** las apps terminaron de abrir. Por defecto es «Modo trabajo activado».
+- Cada comando tiene una **respuesta** que Notivoz dice cuando **todas** las apps terminaron de abrir. Si no escribes una, la arma según tu **personalidad** y el tipo de modo: «¡A chambear, Erick!» para un modo de trabajo, «¡A relajarse!» para uno de ocio…
+- **■ Cerrar** (o «Notivoz, **cierra** / **termina** / **apaga** modo relax») cierra lo que el comando abrió, como al pulsar la X: nunca fuerza, así no se pierde nada sin guardar. Solo cierra los programas que el propio comando abrió; las webs no, para no cerrarte el navegador.
 - **▶ Ejecutar** abre el comando sin hablar. El botón **🎙 Activar micrófono** enciende la escucha; queda recordada para la próxima vez.
 - Para usarlo por voz:
   - Di **«Notivoz, modo trabajo»**.
-  - O di solo **«Notivoz»**, espera el pitido y di la frase dentro de los 3 segundos siguientes.
+  - O di solo **«Notivoz»**, espera el pitido y di la frase dentro de los 5 segundos siguientes.
   - Todo comando empieza siempre con «Notivoz»: sin esa palabra no se ejecuta nada.
 - **Burbuja de voz:** al decir «Notivoz» aparece una burbuja a la derecha de la pantalla, encima de cualquier aplicación y aunque Notivoz esté cerrado en la bandeja.
   - Reacciona al volumen de tu voz.
   - Muestra un anillo girando mientras se abren las apps.
   - Palpita mientras Notivoz dice la respuesta y luego desaparece.
-  - Si no dices un comando en 3 segundos, se oculta y deja de esperarlo.
+  - Si no dices un comando en 5 segundos, se oculta y deja de esperarlo.
 - **Reconocimiento offline (Vosk):**
   - Se descarga una vez un modelo en español de unos 39 MB, desde **Configuración → Comandos de voz**.
   - El audio del micrófono **nunca sale de tu PC**.
@@ -100,6 +111,22 @@ En VS Code basta con abrir la carpeta y pulsar **F5**. La configuración «Notiv
   - Mientras Notivoz habla, no escucha, para no activarse con su propia voz.
 - Las frases deben usar palabras en español que el modelo conozca. Si alguna no la conoce, el formulario te avisa al guardar.
 - En Configuración se elige el **micrófono**. Con **🎙 Probar micrófono** oyes tu voz con 1 segundo de retraso, para comprobar que funciona. La prueba termina con **Terminar prueba**, al cambiar de vista o al cerrar la app.
+
+### Rutinas
+
+En **Rutinas**, **+ Nueva rutina** programa algo para ciertos días y una hora:
+
+- **Ejecutar un comando** (por ejemplo, de lunes a viernes a las 9:00, «modo trabajo»).
+- **Leer mis pendientes**.
+- **Leer el resumen del día**.
+
+Si la PC estaba apagada a esa hora, la rutina se hace al encenderla, siempre que no haya pasado más de una hora. **▶ Probar** la ejecuta al momento.
+
+### Productividad (Configuración)
+
+- **Celebrar la racha** al terminar la primera tarea del día.
+- **Resumen del día al apagar la PC:** «Hoy cerraste 4 tareas, tienes 2 en proceso…». Windows muestra «Notivoz está leyendo tu resumen» unos segundos; puedes apagar igual.
+- **Aviso de ocio** (desactivado al inicio): si en tu horario de trabajo pasas a una app de ocio (Steam, Spotify…), Notivoz te recuerda tu tarea más importante, como mucho una vez cada 30 minutos. Eliges los días, las horas y las apps (también desde las que tengas abiertas).
 
 ## Dónde se guardan los datos
 
@@ -111,6 +138,8 @@ La base de datos **no** está en el repositorio. Vive en la carpeta de datos de 
 
 Para hacer una copia de seguridad, basta con copiar ese archivo. Para pruebas puedes usar otra carpeta con la variable de entorno `NOTIVOZ_DATA_DIR`.
 
+Las columnas nuevas se agregan solas a una base de datos existente al abrir la app (migración en `app/data/database.py`), sin perder datos.
+
 ## Estructura
 
 ```
@@ -119,21 +148,24 @@ notivoz/
 ├── app/
 │   ├── config.py            Nombre, versión y rutas de datos
 │   ├── data/
-│   │   ├── models.py        Tablas: clientes, pendientes, notas, ajustes, comandos
-│   │   └── database.py      Conexión SQLite y sesiones
+│   │   ├── models.py        Tablas: clientes, pendientes, notas, ajustes, comandos, rutinas
+│   │   └── database.py      Conexión SQLite, sesiones y migraciones de columnas
 │   ├── services/
 │   │   ├── pendientes.py    Lógica de tareas: listar, guardar, cambiar estado, eliminar
 │   │   ├── clientes.py      Lógica de clientes: crear, renombrar, eliminar
 │   │   ├── notas.py         Lógica de notas y recordatorios: vencidas, posponer…
 │   │   ├── voz.py           Texto a voz: voces neuronales (edge-tts) con respaldo SAPI
-│   │   ├── saludo.py        Texto que se lee al iniciar
+│   │   ├── saludo.py        Textos que se leen: saludo al iniciar y resumen del día
+│   │   ├── personalidad.py  Frases de Notivoz en tres estilos (formal, amigable, divertido)
+│   │   ├── redaccion.py     Correo de tarea realizada y fechas en español
 │   │   ├── ajustes.py       Preferencias guardadas en la BD
 │   │   ├── inicio_windows.py  Inicio automático (registro Run)
 │   │   ├── comandos.py      Comandos de voz: guardar, ejecutar y anunciar
 │   │   ├── lanzador.py      Abre apps/enlaces y espera a que estén listas
 │   │   ├── escucha.py       Reconocimiento de voz offline (Vosk) y palabra de activación
 │   │   ├── modelo_voz.py    Descarga del modelo de Vosk en español
-│   │   └── microfono.py     Nivel de voz y prueba de micrófono con eco retrasado
+│   │   ├── microfono.py     Nivel de voz y prueba de micrófono con eco retrasado
+│   │   └── rutinas.py       Rutinas por horario
 │   └── ui/
 │       ├── theme.py         Colores y estilos (tema oscuro)
 │       ├── main_window.py   Ventana con barra lateral
@@ -151,6 +183,11 @@ notivoz/
 │       ├── icono.py         Icono de la app dibujado por código
 │       ├── comandos_view.py Tarjetas de comandos y botón de micrófono
 │       ├── comando_dialog.py  Formulario de comando y selector de apps instaladas
-│       └── burbuja.py       Burbuja flotante que reacciona a la voz
-└── requirements.txt
+│       ├── burbuja.py       Burbuja flotante que reacciona a la voz
+│       ├── iconos_menu.py   Iconos del menú lateral
+│       ├── correo_dialog.py   Correo de tarea realizada
+│       ├── rutinas_view.py    Rutinas y su formulario
+│       └── productividad.py   Modo enfoque, programador de rutinas y aviso de ocio
+├── requirements.txt
+└── requirements-dev.txt     Herramientas de desarrollo (pyflakes)
 ```

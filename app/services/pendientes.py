@@ -1,7 +1,7 @@
 """Lógica de negocio de los pendientes (tareas)."""
 
 from dataclasses import dataclass, field
-from datetime import date
+from datetime import date, datetime, timedelta
 
 from sqlalchemy import case, func, or_, select
 from sqlalchemy.orm import contains_eager
@@ -107,16 +107,100 @@ def guardar(datos: DatosPendiente) -> int:
         pendiente.cliente = cliente
         pendiente.importancia = Importancia(datos.importancia)
         pendiente.fecha_ingreso = datos.fecha_ingreso
-        pendiente.estado = Estado(datos.estado)
+        _aplicar_estado(pendiente, Estado(datos.estado))
         s.flush()
         return pendiente.id
+
+
+def _aplicar_estado(pendiente: Pendiente, estado: Estado) -> None:
+    """Cambia el estado y mantiene la fecha de culminación coherente."""
+    if estado == Estado.REALIZADO:
+        if pendiente.estado != Estado.REALIZADO or pendiente.fecha_realizado is None:
+            pendiente.fecha_realizado = datetime.now()
+    else:
+        pendiente.fecha_realizado = None
+    pendiente.estado = estado
 
 
 def cambiar_estado(pendiente_id: int, estado: Estado) -> None:
     with session_scope() as s:
         pendiente = s.get(Pendiente, pendiente_id)
         if pendiente is not None:
-            pendiente.estado = Estado(estado)
+            _aplicar_estado(pendiente, Estado(estado))
+
+
+def cambiar_importancia(pendiente_id: int, importancia: Importancia) -> None:
+    with session_scope() as s:
+        pendiente = s.get(Pendiente, pendiente_id)
+        if pendiente is not None:
+            pendiente.importancia = Importancia(importancia)
+
+
+def cambiar_descripcion(pendiente_id: int, descripcion: str) -> None:
+    with session_scope() as s:
+        pendiente = s.get(Pendiente, pendiente_id)
+        if pendiente is not None:
+            pendiente.descripcion = descripcion.strip()
+
+
+# --- Racha, resumen del día y sugerencias --------------------------------------
+
+
+def racha(hoy: date | None = None) -> int:
+    """Días seguidos en los que se terminó al menos una tarea. Si hoy todavía no
+    se terminó ninguna, la racha sigue viva contando desde ayer."""
+    hoy = hoy or date.today()
+    with session_scope() as s:
+        fechas = {
+            f.date()
+            for f in s.scalars(select(Pendiente.fecha_realizado).where(Pendiente.fecha_realizado.is_not(None)))
+        }
+    dia = hoy if hoy in fechas else hoy - timedelta(days=1)
+    dias = 0
+    while dia in fechas:
+        dias += 1
+        dia -= timedelta(days=1)
+    return dias
+
+
+@dataclass
+class ResumenDia:
+    realizadas: list[str]  # títulos terminados hoy
+    en_proceso: int
+    pendientes: int
+    racha: int
+
+
+def resumen_del_dia(hoy: date | None = None) -> ResumenDia:
+    hoy = hoy or date.today()
+    todas = listar()
+    return ResumenDia(
+        realizadas=[
+            p.titulo for p in todas if p.fecha_realizado is not None and p.fecha_realizado.date() == hoy
+        ],
+        en_proceso=sum(1 for p in todas if p.estado == Estado.EN_PROCESO),
+        pendientes=sum(1 for p in todas if p.estado == Estado.PENDIENTE),
+        racha=racha(hoy),
+    )
+
+
+DIAS_PARA_SUGERIR = 7
+
+
+def sugerencias_prioridad(hoy: date | None = None) -> dict[int, Importancia]:
+    """Tareas sin terminar que llevan mucho tiempo esperando: id → importancia
+    sugerida (un nivel más). Una semana para subir de Baja/Media, dos semanas
+    para pasar de Alta a Crítica."""
+    hoy = hoy or date.today()
+    sugerencias = {}
+    for p in listar():
+        if p.estado == Estado.REALIZADO or p.importancia >= Importancia.CRITICA:
+            continue
+        dias = (hoy - p.fecha_ingreso).days
+        limite = DIAS_PARA_SUGERIR * (2 if p.importancia == Importancia.ALTA else 1)
+        if dias >= limite:
+            sugerencias[p.id] = Importancia(p.importancia + 1)
+    return sugerencias
 
 
 def eliminar(pendiente_id: int) -> None:

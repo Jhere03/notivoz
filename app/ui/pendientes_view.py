@@ -1,6 +1,6 @@
 """Vista principal de pendientes: filtros, tabla y acciones."""
 
-from PySide6.QtCore import QSortFilterProxyModel, Qt, QTimer
+from PySide6.QtCore import QModelIndex, QSortFilterProxyModel, Qt, QTimer, Signal
 from PySide6.QtGui import QAction, QKeySequence, QShortcut
 from PySide6.QtWidgets import (
     QAbstractItemView,
@@ -24,10 +24,11 @@ from app.services import pendientes as servicio
 from app.services.pendientes import FiltroPendientes
 from app.ui import theme
 from app.ui.clientes_dialog import ClientesDialog
+from app.ui.correo_dialog import CorreoDialog
 from app.ui.pendiente_dialog import PendienteDialog
-from app.ui.widgets import EstadoChip
 from app.ui.pendientes_model import (
     COL_CLIENTE,
+    COL_CULMINADO,
     COL_DESCRIPCION,
     COL_ESTADO,
     COL_IMPORTANCIA,
@@ -35,16 +36,23 @@ from app.ui.pendientes_model import (
     COL_TITULO,
     ID_ROLE,
     SORT_ROLE,
-    EtiquetaDelegate,
+    EstadoDelegate,
+    ImportanciaDelegate,
     PendientesModel,
 )
+from app.ui.widgets import EstadoChip
 
 
 class PendientesView(QWidget):
+    # Una tarea acaba de pasar a Realizado (para celebrar la racha).
+    tarea_realizada = Signal(int)
+    # Pedido de modo enfoque sobre una tarea.
+    enfoque_pedido = Signal(int)
+
     def __init__(self, parent=None):
         super().__init__(parent)
 
-        titulo = QLabel("Pendientes")
+        titulo = QLabel("Mis tareas")
         titulo.setObjectName("TituloVista")
 
         # Contadores por estado; clic en uno filtra la tabla por ese estado.
@@ -61,6 +69,10 @@ class PendientesView(QWidget):
             chip.clicked.connect(lambda e=estado: self._filtrar_por_estado(e))
             self.chips[estado] = chip
             contadores.addWidget(chip)
+        self.racha = QLabel()
+        self.racha.setObjectName("Racha")
+        contadores.addSpacing(6)
+        contadores.addWidget(self.racha)
         contadores.addStretch()
 
         self.btn_clientes = QPushButton("Clientes")
@@ -141,11 +153,11 @@ class PendientesView(QWidget):
         self.tabla.doubleClicked.connect(lambda _: self.editar())
 
         self.tabla.setItemDelegateForColumn(
-            COL_IMPORTANCIA, EtiquetaDelegate(theme.COLOR_IMPORTANCIA, self.tabla)
+            COL_IMPORTANCIA, ImportanciaDelegate(theme.COLOR_IMPORTANCIA, self.tabla)
         )
-        self.tabla.setItemDelegateForColumn(
-            COL_ESTADO, EtiquetaDelegate(theme.COLOR_ESTADO, self.tabla)
-        )
+        delegado_estado = EstadoDelegate(theme.COLOR_ESTADO, self.tabla)
+        delegado_estado.correo_pedido.connect(self._abrir_correo)
+        self.tabla.setItemDelegateForColumn(COL_ESTADO, delegado_estado)
 
         header = self.tabla.horizontalHeader()
         header.setHighlightSections(False)
@@ -153,11 +165,12 @@ class PendientesView(QWidget):
         header.setSectionResizeMode(QHeaderView.ResizeMode.Interactive)
         header.setSectionResizeMode(COL_DESCRIPCION, QHeaderView.ResizeMode.Stretch)
         for col, ancho in (
-            (COL_CLIENTE, 170),
-            (COL_TITULO, 280),
-            (COL_IMPORTANCIA, 120),
-            (COL_INGRESO, 110),
-            (COL_ESTADO, 130),
+            (COL_CLIENTE, 140),
+            (COL_TITULO, 230),
+            (COL_IMPORTANCIA, 130),
+            (COL_INGRESO, 105),
+            (COL_ESTADO, 150),
+            (COL_CULMINADO, 105),
         ):
             self.tabla.setColumnWidth(col, ancho)
 
@@ -202,7 +215,7 @@ class PendientesView(QWidget):
         seleccionado = self._id_seleccionado()
         filtro = self._filtro()
         filas = servicio.listar(filtro)
-        self.modelo.set_pendientes(filas)
+        self.modelo.set_pendientes(filas, servicio.sugerencias_prioridad())
         self._actualizar_resumen()
 
         if filas:
@@ -235,6 +248,10 @@ class PendientesView(QWidget):
         for estado, chip in self.chips.items():
             chip.set_valor(conteo[estado])
             chip.set_activo(filtrado == estado)
+        dias = servicio.racha()
+        self.racha.setVisible(dias > 0)
+        self.racha.setText(f"🔥 Racha: {dias} día{'s' if dias != 1 else ''}")
+        self.racha.setToolTip("Días seguidos en los que terminaste al menos una tarea.")
 
     def _filtrar_por_estado(self, estado: Estado) -> None:
         """Clic en un contador: filtra por ese estado, o quita el filtro si ya estaba."""
@@ -267,15 +284,19 @@ class PendientesView(QWidget):
 
     def _abrir_formulario(self, pendiente_id: int | None) -> None:
         pendiente = servicio.obtener(pendiente_id) if pendiente_id is not None else None
+        estaba_realizada = pendiente is not None and pendiente.estado == Estado.REALIZADO
         dialogo = PendienteDialog(servicio_clientes.listar(), pendiente, self)
         if dialogo.exec():
+            datos = dialogo.datos()
             try:
-                nuevo_id = servicio.guardar(dialogo.datos())
+                nuevo_id = servicio.guardar(datos)
             except ValueError as error:
                 QMessageBox.warning(self, "No se pudo guardar", str(error))
                 return
             self.recargar()
             self._seleccionar(nuevo_id)
+            if datos.estado == Estado.REALIZADO and not estaba_realizada:
+                self.tarea_realizada.emit(nuevo_id)
 
     def gestionar_clientes(self) -> None:
         ClientesDialog(self).exec()
@@ -285,9 +306,22 @@ class PendientesView(QWidget):
 
     def cambiar_estado(self, estado: Estado) -> None:
         pendiente_id = self._id_seleccionado()
-        if pendiente_id is not None:
-            servicio.cambiar_estado(pendiente_id, estado)
-            self.recargar()
+        if pendiente_id is None:
+            return
+        anterior = servicio.obtener(pendiente_id)
+        servicio.cambiar_estado(pendiente_id, estado)
+        self.recargar()
+        if estado == Estado.REALIZADO and anterior and anterior.estado != Estado.REALIZADO:
+            self.tarea_realizada.emit(pendiente_id)
+
+    def subir_importancia(self, pendiente_id: int, importancia: Importancia) -> None:
+        servicio.cambiar_importancia(pendiente_id, importancia)
+        self.recargar()
+
+    def _abrir_correo(self, indice: QModelIndex) -> None:
+        pendiente = servicio.obtener(indice.data(ID_ROLE))
+        if pendiente is not None:
+            CorreoDialog(pendiente, self).exec()
 
     def eliminar(self) -> None:
         pendiente_id = self._id_seleccionado()
@@ -313,6 +347,10 @@ class PendientesView(QWidget):
             return
         self.tabla.selectRow(indice.row())
 
+        pendiente_id = indice.data(ID_ROLE)
+        pendiente = servicio.obtener(pendiente_id)
+        if pendiente is None:
+            return
         menu = QMenu(self)
         menu.addAction("Editar…", self.editar)
         marcar = menu.addMenu("Marcar como")
@@ -320,6 +358,16 @@ class PendientesView(QWidget):
             accion = QAction(estado.value, marcar)
             accion.triggered.connect(lambda _=False, e=estado: self.cambiar_estado(e))
             marcar.addAction(accion)
+        sugerida = servicio.sugerencias_prioridad().get(pendiente_id)
+        if sugerida is not None:
+            menu.addAction(
+                f"⬆  Subir importancia a {sugerida.etiqueta} (sugerido)",
+                lambda: self.subir_importancia(pendiente_id, sugerida),
+            )
+        if pendiente.estado == Estado.REALIZADO:
+            menu.addAction("✉  Redactar correo de tarea realizada…", lambda: self._abrir_correo(indice))
+        else:
+            menu.addAction("🎯  Modo enfoque en esta tarea…", lambda: self.enfoque_pedido.emit(pendiente_id))
         menu.addSeparator()
         menu.addAction("Eliminar", self.eliminar)
         menu.exec(self.tabla.viewport().mapToGlobal(pos))

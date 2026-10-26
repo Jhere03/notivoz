@@ -1,6 +1,7 @@
 """Alertas de recordatorio siempre encima y el programador que las lanza."""
 
 import winsound
+from collections.abc import Callable
 from datetime import datetime, timedelta
 
 from PySide6.QtCore import QObject, Qt, QTimer, Signal
@@ -137,6 +138,9 @@ class ProgramadorRecordatorios(QObject):
     def __init__(self, parent=None, intervalo_ms: int = 10_000):
         super().__init__(parent)
         self._alertas: list[AlertaRecordatorio] = []
+        # Mientras devuelva True (modo enfoque), los avisos esperan; al terminar
+        # se muestran todos, marcados como atrasados.
+        self.en_pausa: Callable[[], bool] = lambda: False
         self._timer = QTimer(self, interval=intervalo_ms)
         self._timer.timeout.connect(self.revisar)
         self._timer.start()
@@ -144,6 +148,8 @@ class ProgramadorRecordatorios(QObject):
         QTimer.singleShot(1500, self.revisar)
 
     def revisar(self) -> None:
+        if self.en_pausa():
+            return
         vencidas = servicio.vencidas()
         for nota in vencidas:
             servicio.marcar_notificada(nota.id)

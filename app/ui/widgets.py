@@ -1,7 +1,16 @@
 """Widgets reutilizables: campo de fecha con calendario y contador de estado."""
 
-from PySide6.QtCore import QDate, QEvent, QObject, QPoint, QRectF, Qt, Signal
-from PySide6.QtGui import QColor, QFont, QIcon, QPainter, QPen, QPixmap, QTextCharFormat
+from PySide6.QtCore import QDate, QEvent, QObject, QPoint, QRectF, QRegularExpression, Qt, QTime, Signal
+from PySide6.QtGui import (
+    QColor,
+    QFont,
+    QIcon,
+    QPainter,
+    QPen,
+    QPixmap,
+    QRegularExpressionValidator,
+    QTextCharFormat,
+)
 from PySide6.QtWidgets import (
     QAbstractScrollArea,
     QAbstractSpinBox,
@@ -259,3 +268,24 @@ class SinRuedaAccidental(QObject):
         if area is not None:
             QApplication.sendEvent(area.verticalScrollBar(), event)
         return True
+
+
+class HoraEdit(QLineEdit):
+    """Campo de hora HH:MM (24 horas)."""
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setInputMask("00:00")
+        self.setValidator(
+            QRegularExpressionValidator(QRegularExpression(r"^([01]\d|2[0-3]):[0-5]\d$"), self)
+        )
+        self.setFixedWidth(90)
+        self.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.setToolTip("Hora en formato 24 h, por ejemplo 15:30")
+
+    def hora(self) -> QTime | None:
+        hora = QTime.fromString(self.text(), "HH:mm")
+        return hora if hora.isValid() else None
+
+    def setHora(self, hora: QTime) -> None:
+        self.setText(hora.toString("HH:mm"))

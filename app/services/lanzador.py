@@ -7,6 +7,7 @@ import os
 import subprocess
 import time
 from ctypes import wintypes
+from dataclasses import dataclass, field
 
 log = logging.getLogger(__name__)
 
@@ -74,18 +75,34 @@ def abrir(destino: str) -> int | None:
     return info.hProcess or None
 
 
-def abrir_y_esperar(destinos: list[str], tiempo_maximo: float = 12.0) -> list[str]:
-    """Abre todos los destinos y espera a que estén listos para usarse.
-    Devuelve los que no se pudieron abrir."""
+@dataclass
+class ResultadoApertura:
+    fallidos: list[str] = field(default_factory=list)
+    # Ejecutables que aparecieron al abrir (en minúsculas), para poder cerrarlos luego.
+    procesos_nuevos: set[str] = field(default_factory=set)
+
+
+def _es_web(destino: str) -> bool:
+    return normalizar_destino(destino).lower().startswith(("http://", "https://"))
+
+
+def abrir_y_esperar(destinos: list[str], tiempo_maximo: float = 12.0) -> ResultadoApertura:
+    """Abre todos los destinos, espera a que estén listos para usarse y anota qué
+    procesos nuevos aparecieron. Las webs se abren al final y no se anotan: se
+    abren en el navegador que ya podía estar en uso."""
+    resultado = ResultadoApertura()
+    programas = [d for d in destinos if not _es_web(d)]
+    webs = [d for d in destinos if _es_web(d)]
+
+    antes = procesos_en_ejecucion()
     procesos: list[int] = []
-    fallidos: list[str] = []
     sin_proceso = False
-    for destino in destinos:
+    for destino in programas:
         try:
             handle = abrir(destino)
         except OSError as error:
             log.warning("%s", error)
-            fallidos.append(destino)
+            resultado.fallidos.append(destino)
             continue
         if handle:
             procesos.append(handle)
@@ -109,7 +126,93 @@ def abrir_y_esperar(destinos: list[str], tiempo_maximo: float = 12.0) -> list[st
         _kernel32.CloseHandle(handle)
     if sin_proceso:
         time.sleep(_ESPERA_SIN_PROCESO)
-    return fallidos
+
+    despues = procesos_en_ejecucion()
+    resultado.procesos_nuevos = {
+        nombre for pid, nombre in despues.items() if pid not in antes and nombre not in _NO_CERRAR
+    }
+
+    for destino in webs:
+        try:
+            abrir(destino)
+        except OSError as error:
+            log.warning("%s", error)
+            resultado.fallidos.append(destino)
+    return resultado
+
+
+# --- Procesos ---------------------------------------------------------------------
+
+# Procesos de Windows (o de Notivoz) que pueden aparecer al abrir algo, pero que
+# nunca se deben cerrar.
+_NO_CERRAR = {
+    "explorer.exe", "conhost.exe", "runtimebroker.exe", "svchost.exe", "backgroundtaskhost.exe",
+    "werfault.exe", "searchprotocolhost.exe", "searchfilterhost.exe", "dllhost.exe", "sihost.exe",
+    "taskhostw.exe", "applicationframehost.exe", "textinputhost.exe", "shellexperiencehost.exe",
+    "startmenuexperiencehost.exe", "searchhost.exe", "python.exe", "pythonw.exe", "notivoz.exe",
+    "smartscreen.exe", "consent.exe", "audiodg.exe", "ctfmon.exe", "wmiprvse.exe", "msiexec.exe",
+    "mousocoreworker.exe", "compattelrunner.exe", "securityhealthsystray.exe", "cmd.exe",
+    "powershell.exe", "openwith.exe", "crashpad_handler.exe", "wudfhost.exe", "useroobebroker.exe",
+}  # fmt: skip
+
+_TH32CS_SNAPPROCESS = 0x00000002
+
+
+class _PROCESSENTRY32W(ctypes.Structure):
+    _fields_ = [
+        ("dwSize", wintypes.DWORD),
+        ("cntUsage", wintypes.DWORD),
+        ("th32ProcessID", wintypes.DWORD),
+        ("th32DefaultHeapID", ctypes.c_size_t),
+        ("th32ModuleID", wintypes.DWORD),
+        ("cntThreads", wintypes.DWORD),
+        ("th32ParentProcessID", wintypes.DWORD),
+        ("pcPriClassBase", ctypes.c_long),
+        ("dwFlags", wintypes.DWORD),
+        ("szExeFile", wintypes.WCHAR * 260),
+    ]
+
+
+_kernel32.CreateToolhelp32Snapshot.restype = wintypes.HANDLE
+_kernel32.CreateToolhelp32Snapshot.argtypes = [wintypes.DWORD, wintypes.DWORD]
+_kernel32.Process32FirstW.argtypes = [wintypes.HANDLE, ctypes.POINTER(_PROCESSENTRY32W)]
+_kernel32.Process32NextW.argtypes = [wintypes.HANDLE, ctypes.POINTER(_PROCESSENTRY32W)]
+
+
+def procesos_en_ejecucion() -> dict[int, str]:
+    """pid → nombre del ejecutable en minúsculas ('steam.exe')."""
+    procesos: dict[int, str] = {}
+    captura = _kernel32.CreateToolhelp32Snapshot(_TH32CS_SNAPPROCESS, 0)
+    if not captura or captura == wintypes.HANDLE(-1).value:
+        return procesos
+    try:
+        entrada = _PROCESSENTRY32W()
+        entrada.dwSize = ctypes.sizeof(entrada)
+        hay = _kernel32.Process32FirstW(captura, ctypes.byref(entrada))
+        while hay:
+            procesos[entrada.th32ProcessID] = entrada.szExeFile.lower()
+            hay = _kernel32.Process32NextW(captura, ctypes.byref(entrada))
+    finally:
+        _kernel32.CloseHandle(captura)
+    return procesos
+
+
+def cerrar_procesos(nombres: set[str]) -> int:
+    """Pide cerrarse a los programas (como al pulsar la X; nunca se fuerza, así no
+    se pierde trabajo sin guardar). Devuelve cuántos estaban abiertos."""
+    abiertos = set(procesos_en_ejecucion().values())
+    cerrados = 0
+    for nombre in sorted(nombres - _NO_CERRAR):
+        if nombre not in abiertos:
+            continue
+        subprocess.run(
+            ["taskkill", "/IM", nombre, "/T"],
+            capture_output=True,
+            creationflags=subprocess.CREATE_NO_WINDOW,
+            timeout=15,
+        )
+        cerrados += 1
+    return cerrados
 
 
 _apps_instaladas: list[tuple[str, str]] | None = None
@@ -146,3 +249,52 @@ def apps_instaladas(recargar: bool = False) -> list[tuple[str, str]]:
     }
     _apps_instaladas = sorted(apps.items(), key=lambda a: a[0].lower())
     return _apps_instaladas
+
+
+_PROCESS_QUERY_LIMITED_INFORMATION = 0x1000
+_user32.GetForegroundWindow.restype = wintypes.HWND
+_user32.GetWindowThreadProcessId.argtypes = [wintypes.HWND, ctypes.POINTER(wintypes.DWORD)]
+_kernel32.OpenProcess.restype = wintypes.HANDLE
+_kernel32.OpenProcess.argtypes = [wintypes.DWORD, wintypes.BOOL, wintypes.DWORD]
+_kernel32.QueryFullProcessImageNameW.argtypes = [
+    wintypes.HANDLE, wintypes.DWORD, wintypes.LPWSTR, ctypes.POINTER(wintypes.DWORD),
+]  # fmt: skip
+
+
+def proceso_en_primer_plano() -> str | None:
+    """Ejecutable de la ventana que el usuario está usando ('steam.exe'), o None."""
+    ventana = _user32.GetForegroundWindow()
+    if not ventana:
+        return None
+    pid = wintypes.DWORD()
+    _user32.GetWindowThreadProcessId(ventana, ctypes.byref(pid))
+    proceso = _kernel32.OpenProcess(_PROCESS_QUERY_LIMITED_INFORMATION, False, pid.value)
+    if not proceso:
+        return None
+    try:
+        largo = wintypes.DWORD(1024)
+        ruta = ctypes.create_unicode_buffer(largo.value)
+        if not _kernel32.QueryFullProcessImageNameW(proceso, 0, ruta, ctypes.byref(largo)):
+            return None
+        return os.path.basename(ruta.value).lower()
+    finally:
+        _kernel32.CloseHandle(proceso)
+
+
+def apps_con_ventana() -> list[str]:
+    """Ejecutables que tienen alguna ventana visible ahora (para elegir apps de ocio)."""
+    nombres: set[str] = set()
+    procesos = procesos_en_ejecucion()
+
+    @ctypes.WINFUNCTYPE(wintypes.BOOL, wintypes.HWND, wintypes.LPARAM)
+    def visitar(ventana, _):
+        if _user32.IsWindowVisible(ventana) and _user32.GetWindowTextLengthW(ventana) > 0:
+            pid = wintypes.DWORD()
+            _user32.GetWindowThreadProcessId(ventana, ctypes.byref(pid))
+            nombre = procesos.get(pid.value)
+            if nombre and nombre not in _NO_CERRAR:
+                nombres.add(nombre)
+        return True
+
+    _user32.EnumWindows(visitar, 0)
+    return sorted(nombres)

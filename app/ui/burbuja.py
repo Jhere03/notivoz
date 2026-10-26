@@ -1,6 +1,6 @@
 """Burbuja flotante que aparece al decir «Notivoz», encima de todo.
 
-- Escuchando: crece y brilla con el volumen de tu voz. Si en 3 segundos no
+- Escuchando: crece y brilla con el volumen de tu voz. Si en 5 segundos no
   llega un comando, desaparece.
 - Ejecutando: un anillo gira mientras se abren las aplicaciones.
 - Hablando: palpita mientras Notivoz dice la respuesta y luego se desvanece.
@@ -20,7 +20,7 @@ from app.services.voz import voz
 _TAMANO = 120  # ventana (incluye el halo)
 _RADIO = 21  # burbuja en reposo
 _MARGEN_DERECHO = 12
-_ESPERA_COMANDO_MS = 3000
+_ESPERA_COMANDO_MS = 5000
 _MAXIMO_EJECUCION = 45  # segundos: por si algo falla, nunca queda pegada
 _COLOR = QColor("#7c5cff")
 _COLOR_CLARO = QColor("#a996ff")
@@ -33,16 +33,18 @@ class _Estado(Enum):
     HABLANDO = auto()
 
 
+_BANDERAS_FLOTANTE = (
+    Qt.WindowType.Tool
+    | Qt.WindowType.FramelessWindowHint
+    | Qt.WindowType.WindowStaysOnTopHint
+    | Qt.WindowType.WindowTransparentForInput
+    | Qt.WindowType.WindowDoesNotAcceptFocus
+)
+
+
 class BurbujaVoz(QWidget):
     def __init__(self, nivel_voz: Callable[[], float]):
-        super().__init__(
-            None,
-            Qt.WindowType.Tool
-            | Qt.WindowType.FramelessWindowHint
-            | Qt.WindowType.WindowStaysOnTopHint
-            | Qt.WindowType.WindowTransparentForInput
-            | Qt.WindowType.WindowDoesNotAcceptFocus,
-        )
+        super().__init__(None, _BANDERAS_FLOTANTE)
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
         self.setAttribute(Qt.WidgetAttribute.WA_ShowWithoutActivating)
         self.setFixedSize(_TAMANO, _TAMANO)
@@ -65,7 +67,7 @@ class BurbujaVoz(QWidget):
     # --- API ---------------------------------------------------------------
 
     def escuchar(self) -> None:
-        """Se dijo «Notivoz»: aparecer y esperar el comando 3 segundos."""
+        """Se dijo «Notivoz»: aparecer y esperar el comando unos segundos."""
         if self._estado in (_Estado.EJECUTANDO, _Estado.HABLANDO):
             return
         self._estado = _Estado.ESCUCHANDO
@@ -78,6 +80,10 @@ class BurbujaVoz(QWidget):
         self._estado = _Estado.EJECUTANDO
         self._limite_ejecucion = time.monotonic() + _MAXIMO_EJECUCION
         self._aparecer()
+
+    def ocultar(self) -> None:
+        if self._estado != _Estado.OCULTA:
+            self._desaparecer()
 
     # --- Interno -----------------------------------------------------------
 
