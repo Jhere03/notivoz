@@ -29,6 +29,7 @@ _OSCURO = {
     "acento_hover": "#8f74ff",
     # Solo para la hoja de estilos.
     "fondo_widget": "#14161b",  # fondo general de cualquier widget
+    "lateral": "#1c1f26",  # menú de la izquierda
     "fondo_ventana": "",        # fondo de ventanas y diálogos (solo translúcido)
     "boton": "#242832",
     "acento_pulsado": "#6a4af0",
@@ -64,6 +65,7 @@ _CLARO = {
     "acento": "#7c5cff",
     "acento_hover": "#6b4cf0",
     "fondo_widget": "#f3f4f7",
+    "lateral": "#ffffff",
     "fondo_ventana": "",
     "boton": "#ffffff",
     "acento_pulsado": "#5a3bdc",
@@ -92,6 +94,8 @@ _CLARO = {
 _TRANSLUCIDO = {
     **_OSCURO,
     "fondo_widget": "transparent",
+    # El menú deja ver el acrílico, apenas aclarado para separarlo del contenido.
+    "lateral": "rgba(255, 255, 255, 0.04)",
     "fondo_ventana": "rgba(14, 16, 21, 0.58)",
     "superficie_css": "rgba(28, 31, 39, 0.55)",
     "superficie_alta_css": "rgba(46, 50, 61, 0.70)",
@@ -152,8 +156,13 @@ def construir_qss(nombre: str) -> str:
     c = SimpleNamespace(**p)
     ventana = (
         f"""
-QMainWindow, QDialog {{
+QMainWindow {{
     background: {c.fondo_ventana};
+}}
+/* Los diálogos se crean antes de poder hacerlos transparentes: si se les pone
+   un fondo semitransparente, al repintar quedan "fantasmas". Van sólidos. */
+QDialog {{
+    background: {c.fondo};
 }}
 QComboBoxPrivateContainer {{
     background: {c.emergente};
@@ -177,7 +186,7 @@ QToolTip {{
 
 /* Barra lateral */
 #Sidebar {{
-    background: {c.superficie};
+    background: {c.lateral};
     border-right: 1px solid {c.borde};
 }}
 #Logo {{
@@ -530,6 +539,39 @@ QPushButton#AlertaCerrar:hover {{
 }}
 #Aviso QLabel {{
     background: transparent;
+    color: white;
+}}
+#MensajeUsuario {{
+    background: {c.acento};
+    color: white;
+    border-radius: 12px;
+    padding: 8px 12px;
+}}
+#MensajeNotivoz {{
+    background: {c.superficie_alta};
+    border: 1px solid {c.borde};
+    border-radius: 12px;
+    padding: 8px 12px;
+}}
+#MensajeError {{
+    background: rgba(239, 83, 80, 0.12);
+    border: 1px solid rgba(239, 83, 80, 0.5);
+    border-radius: 12px;
+    padding: 8px 12px;
+}}
+#Escribiendo {{
+    color: {c.texto_suave};
+    font-style: italic;
+}}
+QPushButton#AvisoAccion {{
+    background: transparent;
+    border: none;
+    color: {c.acento_hover};
+    font-weight: 700;
+    padding: 2px 6px;
+    margin: 0;
+}}
+QPushButton#AvisoAccion:hover {{
     color: white;
 }}
 #AvisoIcono {{

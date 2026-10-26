@@ -67,11 +67,21 @@ def _engranaje(p: QPainter) -> None:
     p.drawEllipse(centro, 6, 6)
 
 
+def _chat(p: QPainter) -> None:
+    globo = QPainterPath()
+    globo.addRoundedRect(QRectF(5, 7, 38, 26), 9, 9)
+    p.drawPath(globo)
+    p.drawPolyline([QPointF(14, 33), QPointF(12, 42), QPointF(23, 33)])
+    for x in (16, 24, 32):
+        p.drawPoint(QPointF(x, 20))
+
+
 ICONOS: dict[str, Callable[[QPainter], None]] = {
     "pendientes": _pendientes,
     "notas": _notas,
     "comandos": _microfono,
     "rutinas": _reloj,
+    "chat": _chat,
     "configuracion": _engranaje,
 }
 

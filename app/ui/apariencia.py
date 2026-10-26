@@ -77,17 +77,15 @@ class _Apariencia(QObject):
         self._app.setStyleSheet(theme.QSS)
         for ventana in self._app.topLevelWidgets():
             if _es_ventana_tematizable(ventana) and ventana.isVisible():
-                _aplicar_dwm(ventana, theme.es_oscuro(), self.translucido)
+                _aplicar_dwm(ventana, theme.es_oscuro(), self.translucido and isinstance(ventana, QMainWindow))
         self.tema_cambiado.emit(theme.tema_actual)
 
     def eventFilter(self, obj: QObject, event: QEvent) -> bool:
         tipo = event.type()
-        if tipo == QEvent.Type.Polish and isinstance(obj, QDialog) and obj.isWindow():
-            # Debe ponerse antes de que el diálogo aparezca para que el fondo
-            # pueda ser semitransparente.
-            obj.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, self.translucido)
-        elif tipo == QEvent.Type.Show and _es_ventana_tematizable(obj):
-            _aplicar_dwm(obj, theme.es_oscuro(), self.translucido)
+        if tipo == QEvent.Type.Show and _es_ventana_tematizable(obj):
+            # Solo la ventana principal es translúcida (se crea preparada para
+            # ello); los diálogos van sólidos para que no queden "fantasmas".
+            _aplicar_dwm(obj, theme.es_oscuro(), self.translucido and isinstance(obj, QMainWindow))
             if isinstance(obj, QDialog):
                 self._animar_entrada(obj)
         return False

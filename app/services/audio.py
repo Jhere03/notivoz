@@ -170,6 +170,8 @@ def reproductor() -> Reproductor:
 
 # Si el micrófono capta la voz de Notivoz 30 dB más baja (o menos), no hay eco.
 _ECO_DESPRECIABLE = 0.03
+# Eco quitado necesario para permitir hablarle encima con parlantes (dB).
+_ERLE_MINIMO = 12.0
 
 
 class CanceladorEco:
@@ -191,6 +193,11 @@ class CanceladorEco:
         self.retardo: int | None = None
         # El micrófono casi no capta la voz de Notivoz (audífonos).
         self.sin_eco = False
+        # Volumen del eco que el filtro predice en el último bloque procesado:
+        # tu voz se reconoce porque suena mucho más fuerte que lo que queda de él.
+        self.eco_rms = 0.0
+        self._eco_estimado = np.zeros(0)
+        self._ultimo_eco = np.zeros(0)
         self._historial_ref = np.zeros(self._RETARDO_MAXIMO + 4 * FRECUENCIA, dtype=np.float32)
         self._muestras_ref = 0
         self._estimacion_mic: list[np.ndarray] = []
@@ -204,6 +211,9 @@ class CanceladorEco:
         self._potencia = np.full(p + 1, self._REGULARIZACION, dtype=np.float64)
         self._ref_anterior = np.zeros(p, dtype=np.float64)
         self._bloques_adaptados = 0
+        self._energia_mic = 0.0
+        self._energia_error = 0.0
+        self._eco_bien_cancelado = False
 
     @property
     def convergido(self) -> bool:
@@ -211,10 +221,17 @@ class CanceladorEco:
         return self._bloques_adaptados > 200
 
     @property
+    def erle(self) -> float:
+        """Cuántos decibelios de eco se están quitando (más es mejor)."""
+        return 10 * np.log10((self._energia_mic + 1.0) / (self._energia_error + 1.0))
+
+    @property
     def listo(self) -> bool:
-        """Se puede distinguir tu voz de la de Notivoz: el eco ya se cancela, o
-        no hay eco que cancelar (audífonos)."""
-        return self.convergido or self.sin_eco
+        """Se puede distinguir tu voz de la de Notivoz: no hay eco que cancelar
+        (audífonos), o el eco ya se cancela BIEN. Con parlantes que distorsionan
+        o una sala con mucho eco puede no lograrse: entonces solo se interrumpe
+        con «Notivoz», «espera» o «silencio» (nunca por el propio eco)."""
+        return self.sin_eco or self._eco_bien_cancelado
 
     def procesar(self, mic: np.ndarray, ref: np.ndarray) -> np.ndarray:
         """Bloques int16 de igual largo (múltiplo de 160). Devuelve int16 sin eco."""
@@ -233,8 +250,11 @@ class CanceladorEco:
         fin = len(self._historial_ref) - self.retardo
         ref_retrasada = self._historial_ref[fin - n : fin].astype(np.float64)
         salida = np.empty(n, dtype=np.float64)
+        self._eco_estimado = np.empty(n, dtype=np.float64)
         for i in range(0, n, self._P):
             salida[i : i + self._P] = self._bloque(mic_f[i : i + self._P], ref_retrasada[i : i + self._P])
+            self._eco_estimado[i : i + self._P] = self._ultimo_eco
+        self.eco_rms = float(np.sqrt(np.mean(self._eco_estimado**2)))
         return np.clip(salida, -32768, 32767).astype(np.int16)
 
     def _bloque(self, d: np.ndarray, x: np.ndarray) -> np.ndarray:
@@ -243,10 +263,19 @@ class CanceladorEco:
         self._X[0] = np.fft.rfft(np.concatenate([self._ref_anterior, x]))
         self._ref_anterior = x
         y = np.fft.irfft((self._X * self._W).sum(axis=0))[p:]
+        self._ultimo_eco = y
         e = d - y
         # Doble habla: si queda mucho más que el eco estimado, es tu voz; no
         # aprender de ella (el filtro se desajustaría).
         doble_habla = self.convergido and np.mean(e**2) > 4 * np.mean(y**2) + 1e4
+        if np.abs(x).max() > 300 and not doble_habla:
+            # Medir cuánto eco se quita (solo mientras Notivoz habla y tú no).
+            self._energia_mic = 0.97 * self._energia_mic + 0.03 * float(np.mean(d**2))
+            self._energia_error = 0.97 * self._energia_error + 0.03 * float(np.mean(e**2))
+            if self.convergido and self.erle >= _ERLE_MINIMO:
+                # Una vez comprobado se recuerda: cuando le hablas encima, tu voz
+                # "ensucia" la medición justo cuando más importa.
+                self._eco_bien_cancelado = True
         if np.abs(x).max() > 1.0 and not doble_habla:  # adaptar solo con referencia
             E = np.fft.rfft(np.concatenate([np.zeros(p), e]))
             # Normalizar por la energía de todas las particiones: estable con filtros largos.

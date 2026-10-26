@@ -1,6 +1,7 @@
 """Avisos flotantes breves ("Tarea guardada", "Nota eliminada"…) en la parte
 inferior de la ventana principal."""
 
+from collections.abc import Callable
 from enum import Enum
 
 from PySide6.QtCore import (
@@ -20,10 +21,12 @@ from PySide6.QtWidgets import (
     QGraphicsOpacityEffect,
     QHBoxLayout,
     QLabel,
+    QPushButton,
     QWidget,
 )
 
 _VISIBLE_MS = 2200
+_VISIBLE_CON_ACCION_MS = 7000
 _ENTRADA_MS = 220
 _SALIDA_MS = 260
 _MARGEN_INFERIOR = 26
@@ -37,10 +40,12 @@ class Tipo(Enum):
 
 
 class _Aviso(QFrame):
-    def __init__(self, anfitrion: QWidget, texto: str, tipo: Tipo):
+    def __init__(self, anfitrion: QWidget, texto: str, tipo: Tipo, accion: tuple[str, Callable[[], None]] | None):
         super().__init__(anfitrion)
         self.setObjectName("Aviso")
-        self.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
+        if accion is None:
+            # Sin botón: que los clics pasen a lo que hay debajo.
+            self.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
         simbolo, color = tipo.value
         icono = QLabel(simbolo)
         icono.setObjectName("AvisoIcono")
@@ -51,6 +56,17 @@ class _Aviso(QFrame):
         layout.setSpacing(10)
         layout.addWidget(icono)
         layout.addWidget(mensaje)
+        # Con botón (Deshacer) se queda más tiempo, para alcanzar a pulsarlo.
+        self._visible_ms = _VISIBLE_CON_ACCION_MS if accion is not None else _VISIBLE_MS
+        if accion is not None:
+            texto_boton, al_pulsar = accion
+            boton = QPushButton(texto_boton)
+            boton.setObjectName("AvisoAccion")
+            boton.setCursor(Qt.CursorShape.PointingHandCursor)
+            boton.clicked.connect(al_pulsar)
+            boton.clicked.connect(self.salir)
+            layout.addSpacing(6)
+            layout.addWidget(boton)
         self.adjustSize()
 
         # Un widget admite un solo efecto: fundido al entrar y salir, y sombra
@@ -80,7 +96,7 @@ class _Aviso(QFrame):
         sombra.setOffset(0, 4)
         sombra.setColor(QColor(0, 0, 0, 110))
         self.setGraphicsEffect(sombra)
-        QTimer.singleShot(_VISIBLE_MS, self.salir)
+        QTimer.singleShot(self._visible_ms, self.salir)
 
     def salir(self) -> None:
         if self._grupo is not None and self._grupo.property("salida"):
@@ -119,13 +135,13 @@ class _Anfitrion(QObject):
         self._actual: _Aviso | None = None
         widget.installEventFilter(self)
 
-    def mostrar(self, texto: str, tipo: Tipo) -> None:
+    def mostrar(self, texto: str, tipo: Tipo, accion=None) -> None:
         if self._actual is not None:
             try:
                 self._actual.salir()
             except RuntimeError:  # ya se borró
                 pass
-        aviso = _Aviso(self._widget, texto, tipo)
+        aviso = _Aviso(self._widget, texto, tipo, accion)
         aviso.destroyed.connect(lambda: self._olvidar(aviso))
         self._actual = aviso
         aviso.entrar()
@@ -152,6 +168,7 @@ def registrar(widget: QWidget) -> None:
     _anfitrion = _Anfitrion(widget)
 
 
-def avisar(texto: str, tipo: Tipo = Tipo.EXITO) -> None:
+def avisar(texto: str, tipo: Tipo = Tipo.EXITO, accion: tuple[str, Callable[[], None]] | None = None) -> None:
+    """`accion`: (texto del botón, qué hacer), por ejemplo («Deshacer», …)."""
     if _anfitrion is not None:
-        _anfitrion.mostrar(texto, tipo)
+        _anfitrion.mostrar(texto, tipo, accion)

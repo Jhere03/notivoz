@@ -122,6 +122,14 @@ def _aplicar_estado(pendiente: Pendiente, estado: Estado) -> None:
     pendiente.estado = estado
 
 
+def cambiar_fecha_realizado(pendiente_id: int, momento: datetime) -> None:
+    """Corrige cuándo se terminó una tarea realizada."""
+    with session_scope() as s:
+        pendiente = s.get(Pendiente, pendiente_id)
+        if pendiente is not None and pendiente.estado == Estado.REALIZADO:
+            pendiente.fecha_realizado = momento
+
+
 def cambiar_estado(pendiente_id: int, estado: Estado) -> None:
     with session_scope() as s:
         pendiente = s.get(Pendiente, pendiente_id)

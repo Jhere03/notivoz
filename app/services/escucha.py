@@ -56,6 +56,7 @@ _FRECUENCIA = FRECUENCIA
 _CONFIANZA_MINIMA = 0.55
 _SEGUNDOS_TRAS_ACTIVACION = 5  # tras decir solo «Notivoz», tiempo para decir el comando
 _SEGUNDOS_PARA_RESPONDER = 8  # tras una pregunta de Notivoz, tiempo para contestar
+_MINIMO_TRANSCRIBIR = int(0.3 * FRECUENCIA) * 2  # menos audio que esto no tiene palabras
 # Pedidos libres (con la IA): termina tras esta pausa, y como mucho dura esto.
 _PAUSA_FIN_DICTADO = 1.3
 # Si la frase quedó colgando («…y», «…o sea», «…este»), estás pensando: esperar más.
@@ -75,7 +76,12 @@ _NUMEROS = "uno dos tres cuatro cinco seis siete ocho nueve diez once doce media
 # Contestar encima (con cancelación de eco): voz que supere al eco residual.
 _UMBRAL_VOZ = 600  # RMS mínimo (voz normal: 2000 a 4000)
 _VECES_SOBRE_ECO = 3.0
+# Tu voz debe sonar al menos así de fuerte comparada con el eco que el filtro
+# predice en ese instante (lo que queda del eco, con 12 dB o más cancelados, es
+# 4 veces más débil o menos).
+_FRACCION_DEL_ECO = 0.6
 _BLOQUES_CON_VOZ = 4  # 0,4 s seguidos
+_BLOQUES_FUERTES_CLAVE = 2  # «Notivoz», «espera»: palabras cortas, al menos 0,2 s claras
 _BLOQUES_PRECARGA = 12  # 1,2 s de audio previo que se conserva para tu respuesta
 
 _modelo = None
@@ -149,38 +155,45 @@ class _Interruptor:
         self._niveles: collections.deque[float] = collections.deque(maxlen=30)
         self._reciente: collections.deque[bytes] = collections.deque(maxlen=_BLOQUES_PRECARGA)
         self._seguidos = 0
-        self._fuerte_hace = 99  # bloques desde el último bloque con voz fuerte
+        # Qué bloques del último segundo y pico tuvieron voz claramente tuya.
+        self._fuertes: collections.deque[bool] = collections.deque(maxlen=_BLOQUES_PRECARGA)
 
     def reiniciar(self) -> None:
         self._reconocedor.Reset()
         self._niveles.clear()
         self._reciente.clear()
         self._seguidos = 0
-        self._fuerte_hace = 99
+        self._fuertes.clear()
 
     def audio_reciente(self) -> bytes:
         """Lo último que se oyó (para no perder el inicio de tu respuesta)."""
         return b"".join(self._reciente)
 
-    def procesar(self, datos: bytes, contestar_encima: bool) -> str | None:
-        """'clave' (dijiste «espera»…), 'voz' (le contestaste encima) o None."""
+    def procesar(self, datos: bytes, contestar_encima: bool, eco_rms: float = 0.0) -> str | None:
+        """'clave' (dijiste «espera»…), 'voz' (le contestaste encima) o None.
+
+        `eco_rms`: volumen del eco que el cancelador predice en este bloque. Lo
+        que queda del eco tras cancelarlo es mucho más débil que eso; tu voz,
+        en cambio, suena tan fuerte o más."""
         self._reciente.append(datos)
         muestras = np.frombuffer(datos, dtype=np.int16).astype(np.float64)
         rms = float(np.sqrt(np.mean(muestras**2)))
         piso = float(np.percentile(self._niveles, 30)) if len(self._niveles) >= 5 else _UMBRAL_VOZ
-        if rms > max(_UMBRAL_VOZ, _VECES_SOBRE_ECO * piso):
+        fuerte = rms > max(_UMBRAL_VOZ, _VECES_SOBRE_ECO * piso, _FRACCION_DEL_ECO * eco_rms)
+        self._fuertes.append(fuerte)
+        if fuerte:
             self._seguidos += 1
-            self._fuerte_hace = 0
         else:
             self._seguidos = 0
-            self._fuerte_hace += 1
             self._niveles.append(rms)
 
         if self._reconocedor.AcceptWaveform(datos):
             resultado = json.loads(self._reconocedor.Result())
             palabras = [p for p in resultado.get("result", []) if p.get("word") != "[unk]"]
             dicho = " ".join(p["word"] for p in palabras)
-            if self._fuerte_hace <= _BLOQUES_PRECARGA and self._es_clave(palabras, dicho):
+            # La palabra clave cuenta solo si en el último segundo hubo voz tuya de
+            # verdad (varios bloques fuertes), no un pico suelto del eco.
+            if sum(self._fuertes) >= _BLOQUES_FUERTES_CLAVE and self._es_clave(palabras, dicho):
                 return "clave"
             return None
         if contestar_encima and self._seguidos >= _BLOQUES_CON_VOZ:
@@ -206,9 +219,13 @@ class Escucha(QObject):
     # Se oyó «Notivoz» (también a mitad de frase, para reaccionar enseguida).
     activacion_oida = Signal()
     estado_cambiado = Signal(str, bool)  # texto para mostrar, ¿escuchando?
-    # Con la IA activa: un pedido libre (audio PCM de 16 bits a 16 kHz y su texto,
-    # vacío si no hay transcriptor).
-    dictado_listo = Signal(bytes, str)
+    # Con la IA activa: un pedido libre (audio PCM de 16 bits a 16 kHz, su texto
+    # —vacío si no hay transcriptor— y su origen: "activacion" si empezó con
+    # «Notivoz», "respuesta" si contestabas a Notivoz, "cierre" si hablaste
+    # justo después de que terminó lo que pediste).
+    dictado_listo = Signal(bytes, str, str)
+    # Se abrió una ventana para hablar sin «Notivoz» (milisegundos), para la burbuja.
+    ventana_abierta = Signal(int)
     # El usuario interrumpió a Notivoz mientras hablaba («Notivoz», «espera»…).
     interrupcion = Signal()
 
@@ -227,6 +244,7 @@ class Escucha(QObject):
         self._respuesta_esperada = 0.0
         # Mientras Notivoz pregunta, cualquier respuesta tuya lo interrumpe.
         self._interrupcion_libre = False
+        self._ventana_cierre = False
         # Voz a texto para los pedidos libres (Whisper); lo pone quien usa la IA.
         self.transcribir: Callable[[bytes], str] | None = None
 
@@ -244,10 +262,14 @@ class Escucha(QObject):
         y lo que digas se toma como tu respuesta o tu nuevo pedido."""
         self._interrupcion_libre = True
 
-    def esperar_respuesta(self, segundos: float = _SEGUNDOS_PARA_RESPONDER) -> None:
+    def esperar_respuesta(self, segundos: float = _SEGUNDOS_PARA_RESPONDER, cierre: bool = False) -> None:
         """Conversación en curso: cuando Notivoz termine de hablar (o ya, si no
-        está hablando), se le puede contestar unos segundos sin decir «Notivoz»."""
+        está hablando), se le puede hablar unos segundos sin decir «Notivoz».
+
+        `cierre`: Notivoz terminó lo que le pediste (no preguntó nada); lo que
+        digas en esos segundos puede no ser para ella."""
         self._respuesta_esperada = segundos
+        self._ventana_cierre = cierre
         self._interrupcion_libre = True
 
     def iniciar(self) -> None:
@@ -322,6 +344,13 @@ class Escucha(QObject):
         dictado_inicio = 0.0
         bloques_voz = 0
         dictado_extendido = False
+        dictado_origen = "activacion"
+        armado_origen = "activacion"
+        inicio_frase = 0.0  # cuándo empezaste a hablar en la frase en curso
+        # Si el pedido se alargó por quedar a medias: lo ya transcrito y hasta
+        # dónde (así Whisper no vuelve a transcribir todo).
+        texto_previo = ""
+        largo_previo = 0
         # Audio de un «Notivoz» suelto: Vosk a veces corta ahí el inicio del pedido
         # («Notivoz, recuér|dame…»), así que se antepone al dictado que siga.
         audio_activacion = b""
@@ -353,18 +382,22 @@ class Escucha(QObject):
                         dictado += frase_audio
                         frase_audio.clear()
                         reconocedor.Reset()
-                    texto = self.transcribir(bytes(dictado)) if self.transcribir else ""
+                    nuevo = bytes(dictado[largo_previo:])
+                    texto = self.transcribir(nuevo) if self.transcribir and len(nuevo) > _MINIMO_TRANSCRIBIR else ""
+                    texto = f"{texto_previo} {texto}".strip()
                     if not cortado and not dictado_extendido and quedo_a_medias(texto):
                         # «…con un cliente y»: estabas pensando. Esperar un poco más
                         # (el audio que llegue mientras tanto no se pierde).
                         dictado_extendido = True
+                        texto_previo, largo_previo = texto, len(dictado)
                         dictado_fin = time.monotonic() + _PAUSA_PENSANDO
                         self.activacion_oida.emit()
                         continue
-                    self.dictado_listo.emit(bytes(dictado), texto)
+                    self.dictado_listo.emit(bytes(dictado), texto, dictado_origen)
                     dictado.clear()
                     dictado_fin = 0.0
                     dictado_extendido = False
+                    texto_previo, largo_previo = "", 0
                     armado_hasta = 0.0
                 if datos is None:
                     continue
@@ -382,6 +415,7 @@ class Escucha(QObject):
                 if voz().ocupada():
                     if not silenciado:
                         silenciado = True
+                        inicio_frase = 0.0
                         interruptor.reiniciar()
                     self.nivel = 0.0
                     if precarga is not None:
@@ -392,13 +426,16 @@ class Escucha(QObject):
                     # Contestar encima solo cuando el eco ya se cancela bien (o no hay eco,
                     # como con audífonos); si no, se confundiría con su propia voz.
                     contestar_encima = self._interrupcion_libre and cancelador.listo
-                    tipo = interruptor.procesar(datos, contestar_encima)
+                    tipo = interruptor.procesar(
+                        datos, contestar_encima, cancelador.eco_rms if referencia is not None else 0.0
+                    )
                     if tipo == "clave":
                         log.info("Notivoz fue interrumpido por el usuario («espera»)")
                         voz().detener()
                         self._respuesta_esperada = 0.0
                         self._interrupcion_libre = False
                         armado_hasta = ahora + _SEGUNDOS_TRAS_ACTIVACION
+                        armado_origen = "activacion"
                         winsound.Beep(988, 120)
                         self.interrupcion.emit()
                     elif tipo == "voz":
@@ -420,6 +457,8 @@ class Escucha(QObject):
                         frase_audio += precarga
                         precarga = None
                         armado_hasta = ahora + _SEGUNDOS_TRAS_ACTIVACION
+                        armado_origen = "respuesta"
+                        inicio_frase = ahora
                         self._respuesta_esperada = 0.0
                     self._interrupcion_libre = False
                 # Seguir la conversación: tras la respuesta de Notivoz (o si no te
@@ -427,7 +466,8 @@ class Escucha(QObject):
                 if self._respuesta_esperada:
                     if self.dictado_activo:
                         armado_hasta = ahora + self._respuesta_esperada
-                        self.activacion_oida.emit()
+                        armado_origen = "cierre" if self._ventana_cierre else "respuesta"
+                        self.ventana_abierta.emit(int(self._respuesta_esperada * 1000))
                     self._respuesta_esperada = 0.0
                 self.nivel = nivel_de(datos)
                 frase_audio += datos
@@ -437,6 +477,8 @@ class Escucha(QObject):
                     # Bloques seguidos con voz (dos o más = retomaste la frase; uno
                     # suelto puede ser un ruido y no debe alargar la espera).
                     bloques_voz = bloques_voz + 1 if self.nivel > _NIVEL_VOZ else 0
+                    if not inicio_frase and (parcial or bloques_voz >= 2):
+                        inicio_frase = ahora
                     if dictado and (parcial or bloques_voz >= 2):
                         dictado_fin = 0.0  # sigue hablando: esperar a que termine la frase
                     # Silencio largo sin frase: no acumular audio de más.
@@ -452,6 +494,10 @@ class Escucha(QObject):
                 frase_audio.clear()
                 hubo_voz = bool(resultado.get("result"))
                 texto = self._texto_confiable(resultado)
+                # Para las ventanas sin «Notivoz» cuenta cuándo EMPEZASTE a hablar
+                # (una frase larga puede terminar después de cerrada la ventana).
+                empezo = inicio_frase or ahora
+                inicio_frase = 0.0
 
                 if dictado:
                     # Continuación de un pedido libre tras una pausa breve.
@@ -467,6 +513,7 @@ class Escucha(QObject):
                     frase = texto[len(PALABRA_ACTIVACION):].strip()
                     if not frase and not self._sigue_hablando(resultado):
                         armado_hasta = ahora + _SEGUNDOS_TRAS_ACTIVACION
+                        armado_origen = "activacion"
                         audio_activacion = audio_frase
                         winsound.Beep(988, 120)
                         self.activacion_oida.emit()
@@ -477,11 +524,12 @@ class Escucha(QObject):
                     if self.dictado_activo:
                         # «Notivoz, abre Spotify»: el pedido viene en la misma frase.
                         dictado += audio_frase
+                        dictado_origen = "activacion"
                         dictado_inicio = ahora
                         dictado_fin = ahora + self._pausa_tras(resultado)
                         self.activacion_oida.emit()
                     continue
-                if ahora >= armado_hasta:
+                if empezo >= armado_hasta:
                     continue
                 if texto and self._emitir_comando(texto, validas):
                     armado_hasta = 0.0
@@ -489,6 +537,7 @@ class Escucha(QObject):
                 elif self.dictado_activo and hubo_voz:
                     dictado += audio_activacion + audio_frase
                     audio_activacion = b""
+                    dictado_origen = armado_origen
                     dictado_inicio = ahora
                     dictado_fin = ahora + self._pausa_tras(resultado)
                     self.activacion_oida.emit()
