@@ -24,6 +24,7 @@ unos datos, y este módulo decide si se hace. Reglas de seguridad:
 import json
 import logging
 import os
+import re
 import sys
 import threading
 import time
@@ -91,6 +92,52 @@ def normalizar(texto: str) -> str:
     """Minúsculas, sin tildes ni espacios de más: para comparar nombres y títulos."""
     sin_tildes = unicodedata.normalize("NFKD", texto).encode("ascii", "ignore").decode()
     return " ".join(sin_tildes.lower().split())
+
+
+# --- Memoria de correcciones ----------------------------------------------------------
+#
+# Si Whisper entendió «Bento» y el usuario aclaró que dijo «Dento», se guarda en su
+# equipo y desde entonces se corrige antes de que la IA lo lea.
+
+_LARGO_CORRECCION = 60
+_MAX_CORRECCIONES = 200
+
+
+def guardar_correccion(entendido: str, correcto: str) -> None:
+    correcciones = dict(ajustes.obtener(Clave.CORRECCIONES) or {})
+    correcciones.pop(normalizar(entendido), None)
+    correcciones[normalizar(entendido)] = " ".join(correcto.split())
+    # Si hay demasiadas, se olvidan las más antiguas.
+    while len(correcciones) > _MAX_CORRECCIONES:
+        correcciones.pop(next(iter(correcciones)))
+    ajustes.guardar(Clave.CORRECCIONES, correcciones)
+    log.info("Corrección guardada (%d en total)", len(correcciones))
+
+
+def aplicar_correcciones(texto: str) -> str:
+    """Reemplaza lo que suele entenderse mal por lo que el usuario quiso decir
+    (palabras o frases completas, sin importar mayúsculas ni tildes)."""
+    correcciones = ajustes.obtener(Clave.CORRECCIONES) or {}
+    if not correcciones:
+        return texto
+    palabras = list(re.finditer(r"\w+", texto))
+    reemplazos = []  # (inicio, fin, nuevo)
+    i = 0
+    while i < len(palabras):
+        for largo in (3, 2, 1):  # primero las frases más largas («modo chil» → «modo chill»)
+            grupo = palabras[i : i + largo]
+            if len(grupo) < largo:
+                continue
+            clave = normalizar(" ".join(p.group() for p in grupo))
+            if clave in correcciones:
+                reemplazos.append((grupo[0].start(), grupo[-1].end(), correcciones[clave]))
+                i += largo
+                break
+        else:
+            i += 1
+    for inicio, fin, nuevo in reversed(reemplazos):
+        texto = texto[:inicio] + nuevo + texto[fin:]
+    return texto
 
 
 # --- Nombres que suenan parecido -----------------------------------------------------
@@ -414,6 +461,17 @@ DEFINICIONES: list[dict] = [
         ),
     },
     {
+        "name": "recordar_correccion",
+        "description": "Cuando el usuario corrige una palabra que se entendió mal («no, dije Dento», «es EFE, no F»), guárdala para que la próxima vez se entienda bien desde el inicio.",
+        "input_schema": _esquema(
+            {
+                "entendido": {"type": "string", "description": "Lo que se había entendido, por ejemplo «Bento»."},
+                "correcto": {"type": "string", "description": "Lo que el usuario quiso decir, por ejemplo «Dento»."},
+            },
+            ["entendido", "correcto"],
+        ),
+    },
+    {
         "name": "deshacer_eliminacion",
         "description": "Recupera lo último que se eliminó (si fue hace pocos minutos).",
         "input_schema": _esquema({}, []),
@@ -487,14 +545,14 @@ NOMBRES = {d["name"] for d in DEFINICIONES}
 _DE_ESCRITURA = {
     "crear_tarea", "editar_tarea", "cambiar_estado_tarea", "eliminar_tareas", "crear_nota",
     "editar_nota", "eliminar_notas", "deshacer_eliminacion", "crear_cliente", "abrir_aplicacion",
-    "cerrar_aplicacion", "activar_modo", "cerrar_modo",
+    "cerrar_aplicacion", "activar_modo", "cerrar_modo", "recordar_correccion",
 }
 # Acciones cuyo resultado no hace falta que la IA interprete: si salen bien, la
 # frase que ella escribió junto con la acción basta (una llamada menos).
 SIN_INTERPRETAR = {
     "crear_tarea", "editar_tarea", "cambiar_estado_tarea", "eliminar_tareas", "crear_nota",
     "editar_nota", "eliminar_notas", "deshacer_eliminacion", "crear_cliente", "abrir_aplicacion",
-    "activar_modo", "abrir_ventana",
+    "activar_modo", "abrir_ventana", "recordar_correccion",
 }
 
 
@@ -758,6 +816,14 @@ class Herramientas:
     def _h_eliminar_tareas(self, entrada: dict) -> dict:
         tareas = [self._tarea_existente({"id": i}) for i in self._ids(entrada)]
         return self._eliminar("tarea", tareas)
+
+    def _h_recordar_correccion(self, entrada: dict) -> dict:
+        entendido = _texto(entrada, "entendido", _LARGO_CORRECCION, obligatorio=True)
+        correcto = _texto(entrada, "correcto", _LARGO_CORRECCION, obligatorio=True)
+        if normalizar(entendido) == normalizar(correcto):
+            raise ErrorHerramienta("Lo entendido y lo correcto son iguales.")
+        guardar_correccion(entendido, correcto)
+        return {"guardada": True, "entendido": entendido, "correcto": correcto}
 
     def _h_deshacer_eliminacion(self, _entrada: dict) -> dict:
         restaurado = deshacer_ultima_eliminacion()

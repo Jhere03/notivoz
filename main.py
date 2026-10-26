@@ -4,6 +4,8 @@ Uso:
     python main.py            abre la ventana
     python main.py --inicio   modo "arranque con Windows": según la configuración
                               arranca oculto en la bandeja y lee tus pendientes
+    python main.py --autoprueba  comprueba que cargan las piezas nativas (para
+                                 el ejecutable empaquetado) y sale
 """
 
 import ctypes
@@ -83,6 +85,10 @@ def _escuchar_otras_instancias(ventana: MainWindow) -> QLocalServer:
 def main() -> int:
     desde_windows = inicio_windows.ARG_INICIO in sys.argv[1:]
     _configurar_logs()
+    if "--autoprueba" in sys.argv[1:]:
+        from app.autoprueba import ejecutar
+
+        return ejecutar()
 
     # Meses y días en español (calendario, fechas).
     QLocale.setDefault(QLocale(QLocale.Language.Spanish, QLocale.Country.Peru))

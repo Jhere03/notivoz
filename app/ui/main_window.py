@@ -4,7 +4,7 @@ recordatorios, rutinas y productividad."""
 import ctypes
 import time
 
-from PySide6.QtCore import QSize, Qt
+from PySide6.QtCore import QSize, Qt, QTimer
 from PySide6.QtWidgets import (
     QApplication,
     QHBoxLayout,
@@ -31,6 +31,7 @@ from app.services.escucha import Escucha
 from app.services.saludo import dias_texto, texto_resumen_dia, texto_saludo
 from app.services.voz import voz
 from app.ui import avisos
+from app.ui.actualizacion_ui import PanelVersion
 from app.ui.animaciones import PilaAnimada
 from app.ui.apariencia import apariencia, preparar_ventana_principal
 from app.ui.asistente_voz import ControladorIA
@@ -116,6 +117,8 @@ class MainWindow(QMainWindow):
         lateral.addWidget(lema)
         lateral.addWidget(self.nav, stretch=1)
         lateral.addWidget(self.indicador_enfoque)
+        self.panel_version = PanelVersion()
+        lateral.addWidget(self.panel_version)
         lateral.addWidget(self.estado_escucha)
         lateral.addWidget(version)
 
@@ -191,6 +194,11 @@ class MainWindow(QMainWindow):
         self.configuracion.personalidad_cambiada.connect(self.comandos.recargar)
         self.configuracion.ia_cambiada.connect(self.ia.actualizar)
         self.configuracion.ia_cambiada.connect(self.chat.actualizar)
+
+        # --- Versión y actualizaciones; la primera vez, preparar la voz ---
+        self.panel_version.salir_para_actualizar.connect(self.salir)
+        self.panel_version.modelos_preparados.connect(self._al_preparar_voz)
+        QTimer.singleShot(1500, self.panel_version.preparar_modelos)
 
         # Al apagar Windows: resumen del día.
         QApplication.instance().commitDataRequest.connect(self._al_apagar_windows)
@@ -329,6 +337,12 @@ class MainWindow(QMainWindow):
             self.escucha.iniciar()
         else:
             self.escucha.detener()
+
+    def _al_preparar_voz(self) -> None:
+        """Se descargaron los modelos de voz (primera vez): todo listo para usar."""
+        self.configuracion.refrescar_modelos()
+        self.ia.actualizar()
+        self._reiniciar_escucha()
 
     def _reiniciar_escucha(self) -> None:
         estaba_activa = self.escucha.activa

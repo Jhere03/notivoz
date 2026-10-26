@@ -604,6 +604,26 @@ QPushButton#IndicadorEnfoque:hover {{
     background: rgba({_ACENTO_RGB}, 0.28);
     margin: 6px 10px 0 10px;
 }}
+#PanelVersion {{
+    background: transparent;
+}}
+#EstadoVersion {{
+    background: transparent;
+    color: {c.texto_suave};
+    font-size: 8.5pt;
+}}
+QPushButton#BotonActualizar {{
+    background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #5b3df5, stop:1 #8f74ff);
+    border: none;
+    border-radius: 8px;
+    color: white;
+    font-weight: 700;
+    padding: 8px 10px;
+    text-align: left;
+}}
+QPushButton#BotonActualizar:hover {{
+    background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #6a4cf8, stop:1 #a996ff);
+}}
 #EstadoEscucha {{
     background: transparent;
     color: {c.texto_suave};

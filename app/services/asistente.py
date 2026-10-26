@@ -27,6 +27,7 @@ from app.services.ia_herramientas import (
     SIN_INTERPRETAR,
     Efectos,
     Herramientas,
+    aplicar_correcciones,
     fecha_de_hoy_texto,
     resumen_de_datos,
 )
@@ -94,6 +95,7 @@ Cómo actuar:
 - Si entendiste el pedido, hazlo de una vez, sin pedir confirmación: crear, editar, recordatorios, cambiar estados y también eliminar (aunque sean todas). Pregunta solo si algo no se entendió o hay dos opciones posibles y no sabes cuál quiere.
 - Cada mensaje trae los datos actuales del usuario (tareas, clientes, recordatorios, modos) con sus ids: úsalos directamente. Busca con las herramientas solo si lo que necesitas no está ahí.
 - Lo que te llega es voz pasada a texto y puede tener errores: si un nombre suena parecido a un cliente, tarea o modo existente («Bento» y el cliente es «Dento», «F» y el cliente es «EFE»), es ese; úsalo sin preguntar. Pregunta solo si se parece a varios.
+- Si el usuario te corrige una palabra que se entendió mal («no, dije Dento»), haz lo que pidió y además usa recordar_correccion, para que la próxima vez se entienda bien.
 - Cuando uses herramientas que cambian algo (crear, editar, eliminar, abrir…), escribe en ese mismo mensaje, antes de usarlas, la frase final para el usuario como si ya estuviera hecho («Listo, creé la tarea…»). Si algo falla, Notivoz te lo dirá y lo corriges.
 - Antes de crear algo, revisa en los datos si ya existe; si existe, dilo.
 - Resuelve fechas relativas («mañana», «el viernes», «en una hora») con la fecha y hora actual que llega en cada mensaje. Si falta la hora de un recordatorio, pregúntala.
@@ -192,7 +194,8 @@ class Asistente:
         self._pedidos.append(ahora)
 
     def _responder(self, pedido: str) -> Respuesta:
-        pedido = " ".join(pedido.split())[:_LARGO_MAXIMO_PEDIDO]
+        # Lo que suele entenderse mal se corrige antes (memoria de correcciones).
+        pedido = aplicar_correcciones(" ".join(pedido.split()))[:_LARGO_MAXIMO_PEDIDO]
         if not pedido:
             return Respuesta("")
         self._controlar_limites()
