@@ -5,7 +5,7 @@ import sys
 from pathlib import Path
 
 APP_NAME = "Notivoz"
-APP_VERSION = "0.1.0"
+APP_VERSION = "0.1.1"
 
 
 def ruta_recurso(relativa: str) -> Path:
