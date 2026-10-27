@@ -113,8 +113,8 @@ class SeccionIA(QFrame):
 
         layout.addWidget(
             _ayuda(
-                "Si Notivoz te hace una pregunta, puedes contestarle sin decir «Notivoz», incluso "
-                "mientras habla. Para eliminar algo siempre te pide confirmación: di «sí» o «no»."
+                "Di «Notivoz» y presiona la burbuja (o tu tecla para hablar) para pedirle algo. Lo que "
+                "eliminas se puede recuperar unos minutos con «Deshacer»."
             )
         )
 

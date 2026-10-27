@@ -68,7 +68,7 @@ def guardar(datos: DatosComando) -> int:
     if not frase:
         raise ValueError("Escribe la frase que vas a decir.")
     if not datos.apps:
-        raise ValueError("Agrega al menos una aplicación para abrir.")
+        raise ValueError("Agrega al menos una aplicación o archivo para abrir.")
     with session_scope() as s:
         repetido = s.scalars(
             select(Comando.id).where(Comando.frase == frase, Comando.id != (datos.id or -1))

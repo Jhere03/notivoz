@@ -22,14 +22,16 @@ from app.services import notas as servicio
 from app.services.notas import FiltroNotas
 from app.ui.animaciones import aparecer, desvanecer
 from app.ui.avisos import Tipo, avisar
-from app.ui.formato import fecha_hora_corta, tiempo_restante
+from app.ui.formato import fecha_hora_corta, partible, tiempo_restante
 from app.ui.nota_dialog import NotaDialog
+from app.ui.ver_dialog import icono_ojo, ver_nota
 from app.ui.widgets import FechaEdit
 
 _MAX_VISTA_PREVIA = 260
 
 
 class NotaCard(QFrame):
+    ver = Signal(int)
     editar = Signal(int)
     eliminar = Signal(int)
 
@@ -40,7 +42,7 @@ class NotaCard(QFrame):
         self.setCursor(Qt.CursorShape.PointingHandCursor)
         self.setToolTip("Doble clic para editar")
 
-        titulo = QLabel(nota.titulo)
+        titulo = QLabel(partible(nota.titulo))
         titulo.setObjectName("NotaTitulo")
         titulo.setWordWrap(True)
 
@@ -48,6 +50,13 @@ class NotaCard(QFrame):
         arriba.setSpacing(10)
         arriba.addWidget(titulo, stretch=1)
         arriba.addWidget(self._badge(nota), alignment=Qt.AlignmentFlag.AlignTop)
+        ver = QPushButton()
+        ver.setObjectName("Enlace")
+        ver.setIcon(icono_ojo())
+        ver.setToolTip("Ver la nota completa")
+        ver.setCursor(Qt.CursorShape.PointingHandCursor)
+        ver.clicked.connect(lambda: self.ver.emit(self.nota_id))
+        arriba.addWidget(ver, alignment=Qt.AlignmentFlag.AlignTop)
         for texto, senal in (("Editar", self.editar), ("Eliminar", self.eliminar)):
             boton = QPushButton(texto)
             boton.setObjectName("Enlace")
@@ -64,7 +73,7 @@ class NotaCard(QFrame):
             vista = nota.contenido
             if len(vista) > _MAX_VISTA_PREVIA:
                 vista = vista[:_MAX_VISTA_PREVIA].rstrip() + "…"
-            contenido = QLabel(vista)
+            contenido = QLabel(partible(vista))
             contenido.setObjectName("NotaContenido")
             contenido.setWordWrap(True)
             layout.addWidget(contenido)
@@ -89,6 +98,7 @@ class NotaCard(QFrame):
 
     def contextMenuEvent(self, event) -> None:
         menu = QMenu(self)
+        menu.addAction("Ver…", lambda: self.ver.emit(self.nota_id))
         menu.addAction("Editar…", lambda: self.editar.emit(self.nota_id))
         menu.addSeparator()
         menu.addAction("Eliminar", lambda: self.eliminar.emit(self.nota_id))
@@ -184,6 +194,7 @@ class NotasView(QWidget):
 
         for nota in notas:
             card = NotaCard(nota)
+            card.ver.connect(self.ver)
             card.editar.connect(self.editar)
             card.eliminar.connect(self.eliminar)
             self._layout_lista.addWidget(card)
@@ -234,6 +245,12 @@ class NotasView(QWidget):
 
     def nueva(self) -> None:
         self._abrir_formulario(None)
+
+    def ver(self, nota_id: int) -> None:
+        """La nota completa, sin editar (y desde ahí, si quieres, editarla)."""
+        nota = servicio.obtener(nota_id)
+        if nota is not None and ver_nota(nota, self):
+            self._abrir_formulario(nota_id)
 
     def editar(self, nota_id: int) -> None:
         self._abrir_formulario(nota_id)

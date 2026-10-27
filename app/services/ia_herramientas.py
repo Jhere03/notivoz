@@ -36,7 +36,7 @@ from datetime import date, datetime, timedelta
 from typing import Any
 
 from app.data.models import Estado, Importancia
-from app.services import ajustes
+from app.services import ajustes, apagado
 from app.services import clientes as servicio_clientes
 from app.services import comandos as servicio_comandos
 from app.services import lanzador
@@ -225,6 +225,9 @@ def resumen_de_datos() -> str:
     modos = servicio_comandos.listar()
     if modos:
         lineas.append("Modos: " + "; ".join(f"[id {c.id}] {c.frase}" for c in modos[:20]))
+    programado = apagado.actual()
+    if programado is not None:
+        lineas.append(f"PC: {programado.accion} programado para {programado.cuando:{_FORMATO_FECHA_HORA}}")
     return "\n".join(lineas)
 
 
@@ -535,6 +538,31 @@ DEFINICIONES: list[dict] = [
         "input_schema": _esquema({"id": {"type": "integer"}}, ["id"]),
     },
     {
+        "name": "programar_apagado",
+        "description": (
+            "Apaga o reinicia la PC del usuario a una hora (solo si él lo pidió). Si no dijo cuándo, primero "
+            "pregúntale si ahora o a qué hora. Usa «en_minutos» (0 = ahora: NO apaga todavía, Notivoz espera "
+            "su «sí»; pregúntale «¿Seguro que la apago ahora? Guarda tu trabajo.»; «en unos 5 minutos» → 5; «en media "
+            "hora» → 30) o «a_las» en 24 h («8:50 de la noche» → 20:50). Si dijo una hora sin aclarar mañana, "
+            "tarde o noche, pon ambigua=true y Notivoz elige la más próxima. Siempre hay un minuto para cancelar. "
+            "Al responder, di la hora exacta que devuelve («a las 8:50 de la noche»)."
+        ),
+        "input_schema": _esquema(
+            {
+                "accion": {"type": "string", "enum": list(apagado.ACCIONES)},
+                "en_minutos": {"type": ["integer", "null"]},
+                "a_las": {"type": ["string", "null"], "description": "HH:MM en 24 horas"},
+                "ambigua": {"type": "boolean"},
+            },
+            ["accion", "en_minutos", "a_las", "ambigua"],
+        ),
+    },
+    {
+        "name": "cancelar_apagado",
+        "description": "Cancela el apagado o reinicio programado de la PC.",
+        "input_schema": _esquema({}, []),
+    },
+    {
         "name": "cerrar_modo",
         "description": "Cierra las apps que abrió un modo o comando de voz.",
         "input_schema": _esquema({"id": {"type": "integer"}}, ["id"]),
@@ -546,7 +574,11 @@ _DE_ESCRITURA = {
     "crear_tarea", "editar_tarea", "cambiar_estado_tarea", "eliminar_tareas", "crear_nota",
     "editar_nota", "eliminar_notas", "deshacer_eliminacion", "crear_cliente", "abrir_aplicacion",
     "cerrar_aplicacion", "activar_modo", "cerrar_modo", "recordar_correccion",
+    "programar_apagado", "cancelar_apagado",
 }
+# Lo que cuenta como «hizo algo» (para despedirse con una carita): todo lo que
+# cambia algo o abre algo, menos aprender una palabra.
+_ACCIONES_VISIBLES = (_DE_ESCRITURA | {"abrir_ventana"}) - {"recordar_correccion"}
 # Acciones cuyo resultado no hace falta que la IA interprete: si salen bien, la
 # frase que ella escribió junto con la acción basta (una llamada menos).
 SIN_INTERPRETAR = {
@@ -561,20 +593,31 @@ SIN_INTERPRETAR = {
 
 @dataclass
 class AccionPendiente:
-    """Forzar el cierre de una aplicación (podría perder cambios sin guardar):
-    espera el «sí» del usuario."""
+    """Algo que espera el «sí» del usuario: forzar el cierre de una aplicación
+    (podría perder cambios sin guardar) o apagar / reiniciar la PC ya."""
 
-    titulo: str  # nombre de la aplicación
+    titulo: str  # nombre de la aplicación (o «tu PC»)
     vence: float
     procesos: frozenset[str] = frozenset()
+    tipo: str = "cerrar_app"  # o apagado.APAGAR / apagado.REINICIAR
 
     @property
     def vigente(self) -> bool:
         return time.monotonic() < self.vence
 
-    def ejecutar(self) -> None:
+    def resolver(self, confirma: bool, frases: Frases) -> str:
+        """Hace (o no) lo pendiente y devuelve qué decir."""
+        if self.tipo in apagado.ACCIONES:
+            if not confirma:
+                return frases.frase("apagado_no")
+            apagado.ahora_confirmado(self.tipo)
+            log.info("%s ahora, confirmado por el usuario", self.tipo.capitalize())
+            return frases.frase("apagado_despedida" if self.tipo == apagado.APAGAR else "reinicio_despedida")
+        if not confirma:
+            return f"De acuerdo, dejo {self.titulo} abierto."
         lanzador.cerrar_procesos(set(self.procesos), forzar=True)
         log.info("Cierre forzado confirmado por el usuario")
+        return f"Listo, cerré {self.titulo}."
 
 
 # --- Papelera: lo eliminado se puede recuperar unos minutos ---------------------------
@@ -629,6 +672,9 @@ def hay_algo_para_deshacer() -> bool:
 _PALABRAS_ELIMINAR = ("elimin", "borr", "quit", "limpi", "sac", "descart", "remov", "suprim", "deshaz")
 
 
+_VIGENCIA_PEDIDO_APAGAR = 180  # segundos
+
+
 def pidio_eliminar(pedido: str) -> bool:
     """¿El usuario pidió eliminar con sus palabras («elimina», «bórralas»…)?"""
     texto = normalizar(pedido)
@@ -646,6 +692,12 @@ class Efectos:
     eliminado: str = ""  # lo que se eliminó, para el aviso flotante (con Deshacer)
     restaurado: str = ""  # lo que se recuperó
     abrir_ventana: str | None = None  # "" = solo mostrarla; si no, la sección
+    acciones: int = 0  # acciones que salieron bien (crear, editar, eliminar, abrir…)
+
+    @property
+    def hizo_algo(self) -> bool:
+        """¿Ejecutó algo de verdad? (Si solo conversó o consultó, no.)"""
+        return self.acciones > 0
 
 
 class Herramientas:
@@ -655,10 +707,19 @@ class Herramientas:
         self.pendiente: AccionPendiente | None = None
         # Lo que dijo el usuario en este pedido (para comprobar que pidió eliminar).
         self.ultimo_pedido = ""
+        # Hasta cuándo vale haber pedido apagar la PC (para contestar «¿a qué hora?»).
+        self._apagar_pedido_hasta = 0.0
         self.efectos = Efectos()
         self._cambios_turno = 0
         # Apps que abrió la IA en esta sesión: nombre normalizado → procesos.
         self._abiertas: dict[str, set[str]] = {}
+
+    def recibir_pedido(self, pedido: str) -> None:
+        """Lo que dijo el usuario en este turno (para comprobar lo que pidió)."""
+        self.ultimo_pedido = pedido
+        if apagado.pidio_apagar(normalizar(pedido)):
+            # Vale también para su respuesta a «¿ahora o a qué hora?».
+            self._apagar_pedido_hasta = time.monotonic() + _VIGENCIA_PEDIDO_APAGAR
 
     def nuevo_turno(self) -> None:
         self._cambios_turno = 0
@@ -681,6 +742,8 @@ class Herramientas:
         try:
             resultado = getattr(self, f"_h_{nombre}")(entrada)
             log.info("IA usó la herramienta %s", nombre)
+            if nombre in _ACCIONES_VISIBLES and not (isinstance(resultado, dict) and "error" in resultado):
+                self.efectos.acciones += 1
             return json.dumps(resultado, ensure_ascii=False, default=str), False
         except ErrorHerramienta as error:
             return json.dumps({"error": str(error)}, ensure_ascii=False), True
@@ -1067,6 +1130,45 @@ class Herramientas:
             raise ErrorHerramienta(f"El modo «{comando.frase}» está desactivado.")
         self.efectos.comandos_activados.append(comando.id)
         return {"activado": True, "modo": comando.frase, "nota": "Notivoz lo anuncia por su cuenta."}
+
+    def _h_programar_apagado(self, e: dict) -> dict:
+        if time.monotonic() > self._apagar_pedido_hasta:
+            raise ErrorHerramienta(
+                "Solo se apaga o reinicia la PC si el usuario lo pide con sus palabras. Pregúntale si quiere hacerlo."
+            )
+        accion = e.get("accion")
+        if accion not in apagado.ACCIONES:
+            raise ErrorHerramienta("La acción debe ser «apagar» o «reiniciar».")
+        en_minutos = e.get("en_minutos")
+        if en_minutos is not None and (isinstance(en_minutos, bool) or not isinstance(en_minutos, int)):
+            raise ErrorHerramienta("«en_minutos» debe ser un número entero.")
+        a_las = e.get("a_las")
+        if a_las is not None and not isinstance(a_las, str):
+            raise ErrorHerramienta("«a_las» debe ser una hora HH:MM.")
+        ahora = datetime.now()
+        if en_minutos == 0 and a_las is None:
+            # «Ahora»: primero el «sí» del usuario (se resuelve sin IA).
+            self.pendiente = AccionPendiente("tu PC", time.monotonic() + SEGUNDOS_PARA_CONFIRMAR, tipo=accion)
+            self._apagar_pedido_hasta = 0.0
+            return {
+                "programado": False,
+                "requiere_confirmacion_del_usuario": True,
+                "pregunta": f"¿Seguro que la {'apago' if accion == apagado.APAGAR else 'reinicio'} ahora? Guarda tu trabajo.",
+            }
+        cuando = apagado.calcular_hora(ahora, en_minutos, a_las, bool(e.get("ambigua")))
+        apagado.programar(accion, cuando)
+        self._apagar_pedido_hasta = 0.0  # un pedido, una vez
+        return {
+            "programado": accion,
+            "cuando": apagado.describir(cuando, ahora),
+            "nota": "Un minuto antes Notivoz avisa con un botón para cancelar.",
+        }
+
+    def _h_cancelar_apagado(self, _e: dict) -> dict:
+        anterior = apagado.cancelar()
+        if anterior is None:
+            return {"cancelado": False, "motivo": "No había ningún apagado programado."}
+        return {"cancelado": True, "era": f"{anterior.accion} {apagado.describir(anterior.cuando, datetime.now())}"}
 
     def _h_cerrar_modo(self, entrada: dict) -> dict:
         comando = self._modo(entrada)

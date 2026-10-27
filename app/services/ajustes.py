@@ -34,6 +34,7 @@ class Clave(StrEnum):
     SALIDA_VOZ = "salida_voz"
     IA_ACTIVA = "ia_activa"
     IA_USO = "ia_uso"
+    TECLA_HABLAR = "tecla_hablar"
 
 
 _POR_DEFECTO: dict[Clave, Any] = {
@@ -47,7 +48,7 @@ _POR_DEFECTO: dict[Clave, Any] = {
     Clave.VOZ_NOMBRE: VOZ_POR_DEFECTO,  # "" = solo la voz de Windows
     Clave.ESCUCHA_ACTIVA: False,  # el micrófono solo se enciende si el usuario lo pide
     Clave.MICROFONO: "",  # "" = el predeterminado de Windows
-    Clave.PERSONALIDAD: "amigable",  # formal | amigable | divertido
+    Clave.PERSONALIDAD: "amigable",  # formal | amigable | divertido | peruanazo
     Clave.CELEBRAR_RACHA: True,
     Clave.RESUMEN_AL_APAGAR: True,
     # Aviso amable si abres apps de ocio en horario de trabajo (desactivado al inicio).
@@ -56,6 +57,8 @@ _POR_DEFECTO: dict[Clave, Any] = {
     Clave.HORARIO_DIAS: [0, 1, 2, 3, 4],  # lunes a viernes
     Clave.HORARIO_INICIO: "09:00",
     Clave.HORARIO_FIN: "18:00",
+    # Tecla que hace lo mismo que presionar la burbuja: {"vk", "mods", "nombre"} o None.
+    Clave.TECLA_HABLAR: None,
     Clave.TEMA: "oscuro",  # oscuro | claro | translucido
     Clave.CORRECCIONES: {},  # lo que se entendió mal → lo que dijiste («bento» → «Dento»)
     Clave.SALIDA_VOZ: "",  # "" = la salida de audio predeterminada de Windows

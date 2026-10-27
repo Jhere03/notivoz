@@ -20,7 +20,7 @@ from PySide6.QtWidgets import (
 from app.data.models import Nota
 from app.services import notas as servicio
 from app.services.voz import voz
-from app.ui.formato import fecha_hora_corta
+from app.ui.formato import fecha_hora_corta, partible
 
 _MARGEN = 16
 _SEPARACION = 4
@@ -79,7 +79,7 @@ class AlertaRecordatorio(QWidget):
         cabecera.addWidget(etiqueta, stretch=1)
         cabecera.addWidget(cerrar)
 
-        titulo = QLabel(nota.titulo)
+        titulo = QLabel(partible(nota.titulo))
         titulo.setObjectName("AlertaTitulo")
         titulo.setWordWrap(True)
 
@@ -106,7 +106,7 @@ class AlertaRecordatorio(QWidget):
         interior.addLayout(cabecera)
         interior.addWidget(titulo)
         if nota.contenido:
-            contenido = QLabel(nota.contenido)
+            contenido = QLabel(partible(nota.contenido))
             contenido.setObjectName("AlertaContenido")
             contenido.setWordWrap(True)
             contenido.setMaximumHeight(160)

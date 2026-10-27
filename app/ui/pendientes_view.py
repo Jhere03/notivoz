@@ -27,6 +27,7 @@ from app.ui.avisos import Tipo, avisar
 from app.ui.clientes_dialog import ClientesDialog
 from app.ui.correo_dialog import CorreoDialog
 from app.ui.pendiente_dialog import PendienteDialog
+from app.ui.ver_dialog import ver_tarea
 from app.ui.pendientes_model import (
     COL_CLIENTE,
     COL_CULMINADO,
@@ -35,11 +36,13 @@ from app.ui.pendientes_model import (
     COL_IMPORTANCIA,
     COL_INGRESO,
     COL_TITULO,
+    COL_VER,
     ID_ROLE,
     SORT_ROLE,
     EstadoDelegate,
     ImportanciaDelegate,
     PendientesModel,
+    VerDelegate,
 )
 from app.ui.widgets import EstadoChip
 
@@ -159,6 +162,9 @@ class PendientesView(QWidget):
         delegado_estado = EstadoDelegate(theme.COLOR_ESTADO, self.tabla)
         delegado_estado.correo_pedido.connect(self._abrir_correo)
         self.tabla.setItemDelegateForColumn(COL_ESTADO, delegado_estado)
+        delegado_ver = VerDelegate(self.tabla)
+        delegado_ver.ver_pedido.connect(lambda indice: self.ver(indice.data(ID_ROLE)))
+        self.tabla.setItemDelegateForColumn(COL_VER, delegado_ver)
 
         header = self.tabla.horizontalHeader()
         header.setHighlightSections(False)
@@ -174,6 +180,8 @@ class PendientesView(QWidget):
             (COL_CULMINADO, 105),
         ):
             self.tabla.setColumnWidth(col, ancho)
+        header.setSectionResizeMode(COL_VER, QHeaderView.ResizeMode.Fixed)
+        self.tabla.setColumnWidth(COL_VER, 52)
 
         self.vacio = QLabel()
         self.vacio.setObjectName("Vacio")
@@ -289,6 +297,17 @@ class PendientesView(QWidget):
         if pendiente_id is not None:
             self._abrir_formulario(pendiente_id)
 
+    def ver(self, pendiente_id: int | None = None) -> None:
+        """La tarea completa, sin editar (y desde ahí, si quieres, editarla)."""
+        if pendiente_id is None:
+            pendiente_id = self._id_seleccionado()
+        pendiente = servicio.obtener(pendiente_id) if pendiente_id is not None else None
+        if pendiente is None:
+            return
+        self._seleccionar(pendiente_id)
+        if ver_tarea(pendiente, self):
+            self._abrir_formulario(pendiente_id)
+
     def _abrir_formulario(self, pendiente_id: int | None) -> None:
         pendiente = servicio.obtener(pendiente_id) if pendiente_id is not None else None
         estaba_realizada = pendiente is not None and pendiente.estado == Estado.REALIZADO
@@ -363,6 +382,7 @@ class PendientesView(QWidget):
         if pendiente is None:
             return
         menu = QMenu(self)
+        menu.addAction("Ver…", lambda: self.ver(pendiente_id))
         menu.addAction("Editar…", self.editar)
         marcar = menu.addMenu("Marcar como")
         for estado in Estado:

@@ -152,7 +152,8 @@ class ComandoDialog(QDialog):
         botones_apps.setSpacing(6)
         for texto, accion in (
             ("+ App instalada…", self._agregar_instalada),
-            ("+ Archivo .exe…", self._agregar_archivo),
+            ("+ Programa .exe…", self._agregar_archivo),
+            ("+ Archivo…", self._agregar_documento),
             ("+ Web o enlace…", self._agregar_enlace),
         ):
             boton = QPushButton(texto)
@@ -172,7 +173,7 @@ class ComandoDialog(QDialog):
         form.addRow("Respuesta", self.respuesta)
         form.addRow("", self.activo)
 
-        etiqueta_apps = QLabel("Aplicaciones que abre *")
+        etiqueta_apps = QLabel("Aplicaciones y archivos que abre *")
         etiqueta_apps.setObjectName("SeccionTitulo")
 
         botones = QDialogButtonBox(
@@ -230,6 +231,20 @@ class ComandoDialog(QDialog):
             ruta = os.path.normpath(ruta)
             self._anadir(DatosApp(os.path.splitext(os.path.basename(ruta))[0], ruta))
 
+    def _agregar_documento(self) -> None:
+        """Cualquier archivo (Excel, PDF, Word, imágenes…): se abre con su
+        programa predeterminado, como al darle doble clic."""
+        rutas, _ = QFileDialog.getOpenFileNames(
+            self,
+            "Elegir archivos",
+            os.path.join(os.path.expanduser("~"), "Documents"),
+            "Documentos e imágenes (*.pdf *.doc *.docx *.xls *.xlsx *.xlsm *.csv *.ppt *.pptx *.txt "
+            "*.odt *.ods *.png *.jpg *.jpeg *.gif *.bmp *.webp *.mp3 *.mp4);;Todos los archivos (*.*)",
+        )
+        for ruta in rutas:
+            ruta = os.path.normpath(ruta)
+            self._anadir(DatosApp(os.path.basename(ruta), ruta))
+
     def _agregar_enlace(self) -> None:
         enlace, ok = QInputDialog.getText(
             self, "Web o enlace", "Dirección (por ejemplo https://youtube.com o steam://open/main):"
@@ -250,7 +265,7 @@ class ComandoDialog(QDialog):
             self.frase.setFocus()
             return
         if self.apps.count() == 0:
-            QMessageBox.warning(self, "Sin aplicaciones", "Agrega al menos una aplicación para abrir.")
+            QMessageBox.warning(self, "Sin aplicaciones", "Agrega al menos una aplicación o archivo para abrir.")
             return
         desconocidas = palabras_desconocidas(frase)
         if desconocidas:
