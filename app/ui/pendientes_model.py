@@ -22,8 +22,9 @@ from PySide6.QtWidgets import (
 
 from app.data.models import Estado, Importancia, Pendiente
 from app.ui import theme
+from app.ui.ver_dialog import dibujar_ojo
 
-COLUMNAS = ["Cliente", "Pendiente", "Descripción", "Importancia", "Ingreso", "Estado", "Culminado"]
+COLUMNAS = ["Cliente", "Pendiente", "Descripción", "Importancia", "Ingreso", "Estado", "Culminado", ""]
 (
     COL_CLIENTE,
     COL_TITULO,
@@ -32,6 +33,7 @@ COLUMNAS = ["Cliente", "Pendiente", "Descripción", "Importancia", "Ingreso", "E
     COL_INGRESO,
     COL_ESTADO,
     COL_CULMINADO,
+    COL_VER,  # botón con un ojo: ver la tarea completa
 ) = range(len(COLUMNAS))
 
 ID_ROLE = Qt.ItemDataRole.UserRole
@@ -100,6 +102,8 @@ class PendientesModel(QAbstractTableModel):
             return p.descripcion
         if col == COL_TITULO:
             return p.titulo
+        if col == COL_VER:
+            return "Ver la tarea completa"
         if col == COL_IMPORTANCIA and p.id in self._sugerencias:
             return (
                 f"Notivoz sugiere subirla a «{self._sugerencias[p.id].etiqueta}»: "
@@ -297,3 +301,63 @@ class EstadoDelegate(EtiquetaDelegate):
             QToolTip.showText(event.globalPos(), "Redactar correo de tarea realizada", view)
             return True
         return super().helpEvent(event, view, option, index)
+
+
+class VerDelegate(QStyledItemDelegate):
+    """El botón con un ojo de cada fila: al pasar el cursor se rellena y crece;
+    al hacer clic emite `ver_pedido` con el índice de la fila."""
+
+    ver_pedido = Signal(QModelIndex)
+
+    _TAMANO = 20
+    _ESCALA_HOVER = 1.2
+
+    def __init__(self, vista: QAbstractItemView):
+        super().__init__(vista)
+        self._vista = vista
+        self._fila_hover: int | None = None
+        vista.setMouseTracking(True)
+        vista.viewport().installEventFilter(self)
+
+    def eventFilter(self, obj, event) -> bool:
+        if event.type() in (QEvent.Type.MouseMove, QEvent.Type.Leave):
+            fila = None
+            if event.type() == QEvent.Type.MouseMove:
+                indice = self._vista.indexAt(event.position().toPoint())
+                if indice.isValid() and indice.column() == COL_VER:
+                    fila = indice.row()
+            if fila != self._fila_hover:
+                # (Si el cursor salió de esta columna, el delegado del estado decide el cursor.)
+                if fila is not None or self._fila_hover is not None:
+                    cursor = Qt.CursorShape.PointingHandCursor if fila is not None else Qt.CursorShape.ArrowCursor
+                    self._vista.viewport().setCursor(cursor)
+                self._fila_hover = fila
+                self._vista.viewport().update()
+        return False
+
+    def paint(self, painter: QPainter, option: QStyleOptionViewItem, index) -> None:
+        opt = QStyleOptionViewItem(option)
+        self.initStyleOption(opt, index)
+        opt.text = ""
+        style = opt.widget.style() if opt.widget else QApplication.style()
+        style.drawControl(QStyle.ControlElement.CE_ItemViewItem, opt, painter, opt.widget)
+        hover = index.row() == self._fila_hover
+        tamano = self._TAMANO * (self._ESCALA_HOVER if hover else 1)
+        centro = QRectF(option.rect).center()
+        painter.save()
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+        if hover:
+            painter.setPen(Qt.PenStyle.NoPen)
+            fondo = QColor(theme.ACENTO)
+            fondo.setAlpha(45)
+            painter.setBrush(fondo)
+            painter.drawEllipse(centro, tamano * 0.85, tamano * 0.85)
+        rect = QRectF(centro.x() - tamano / 2, centro.y() - tamano / 2, tamano, tamano)
+        dibujar_ojo(painter, rect, QColor(theme.ACENTO_HOVER), relleno=hover)
+        painter.restore()
+
+    def editorEvent(self, event, model, option, index) -> bool:
+        if event.type() == QEvent.Type.MouseButtonRelease and event.button() == Qt.MouseButton.LeftButton:
+            self.ver_pedido.emit(QModelIndex(index))
+            return True
+        return super().editorEvent(event, model, option, index)

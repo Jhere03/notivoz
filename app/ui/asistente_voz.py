@@ -4,10 +4,11 @@ La transcripción y la IA corren en un hilo aparte (tardan unos segundos); los
 resultados vuelven al hilo de la interfaz con señales.
 
 Conversación:
-- Si Notivoz te pregunta algo, lo puedes contestar sin decir «Notivoz».
-- Si terminó lo que pediste, te escucha solo un par de segundos más: un
-  «gracias» u «ok» se responde con una sonrisa (sin hablar); si lo que dices no
-  es para ella, lo ignora. Después hay que volver a decir «Notivoz».
+- «Notivoz» hace aparecer la burbuja; al tocarla te escucha hasta que dejas de
+  hablar, y luego procesa tu pedido.
+- Si la tocas mientras procesa, lo nuevo que digas se suma a lo anterior: la
+  respuesta anterior no se dice (sus acciones sí se hacen) y se responde todo junto.
+- Un «gracias» u «ok» se responde con una sonrisa (sin hablar ni gastar IA).
 """
 
 import logging
@@ -16,17 +17,14 @@ import time
 
 from PySide6.QtCore import QObject, Signal
 
-from app.services import transcripcion
+from app.services import ajustes, transcripcion
 from app.services.asistente import Asistente, ErrorAsistente, Respuesta
 from app.services.escucha import Escucha
-from app.services.ia_herramientas import deshacer_ultima_eliminacion, normalizar, respuesta_confirmacion
+from app.services.ia_herramientas import deshacer_ultima_eliminacion, normalizar
 from app.services.voz import voz
 from app.ui.avisos import Tipo, avisar
 
 log = logging.getLogger(__name__)
-
-_SEGUNDOS_PARA_CONTESTAR = 8  # Notivoz te preguntó algo
-_SEGUNDOS_TRAS_TERMINAR = 2.5  # terminó lo que pediste: por si agradeces o sigues
 
 # «Gracias», «ok», «perfecto»…: se responde con un gesto, sin gastar IA.
 _PALABRAS_DE_CIERRE = set("""
@@ -52,19 +50,28 @@ class ControladorIA(QObject):
     # Para la burbuja: True mientras se piensa, False al terminar sin hablar.
     pensando = Signal(bool)
     decir_en_nube = Signal(str)
+    # Una carita en la burbuja: ya (le agradeciste) o al terminar de hablar (hizo algo).
     gesto = Signal()
-    _listo = Signal(object, str)  # Respuesta, origen
-    _fallo = Signal(str)
+    gesto_al_terminar = Signal()
+    # Para la burbuja: te está escuchando / un aviso breve.
+    escuchando = Signal()
+    mensaje = Signal(str)
+    _listo = Signal(object)  # Respuesta
 
     def __init__(self, escucha: Escucha, parent=None):
         super().__init__(parent)
         self.asistente = Asistente()
         self._escucha = escucha
-        self._ocupado = False
+        self._ocupado = False  # la IA está procesando un pedido
+        self._esperando_pedido = False  # tocaste la burbuja y aún no hablas
+        self._cola: list[str] = []  # lo que dijiste mientras procesaba
+        self._retenida: Respuesta | None = None  # llegó mientras volvías a hablar
         escucha.dictado_listo.connect(self._al_dictar)
+        escucha.sin_pedido.connect(self._sin_pedido)
+        escucha.pedido_terminado.connect(lambda: self.pensando.emit(True))
+        escucha.pedido_continua.connect(self.escuchando.emit)
         escucha.transcribir = self._transcribir
         self._listo.connect(self._al_responder)
-        self._fallo.connect(self._al_fallar)
         self.actualizar()
 
     def actualizar(self) -> None:
@@ -74,6 +81,13 @@ class ControladorIA(QObject):
         if lista:
             # Cargar Whisper de antemano para que el primer pedido no tarde más.
             threading.Thread(target=self._precargar, name="Whisper", daemon=True).start()
+            self.preparar_confirmaciones()
+
+    @staticmethod
+    def preparar_confirmaciones() -> None:
+        """Grabar de antemano las confirmaciones («¡Listo! Tarea creada.») con la
+        personalidad y la voz actuales: así suenan apenas termina el pedido."""
+        voz().preparar(ajustes.frases_actuales().confirmaciones())
 
     @staticmethod
     def _precargar() -> None:
@@ -112,6 +126,25 @@ class ControladorIA(QObject):
 
     # --- Flujo por voz ---
 
+    def al_oir_activacion(self) -> None:
+        """Se oyó «Notivoz»: mientras decides si tocas la burbuja, dejar lista la
+        conexión con la IA (así el pedido no espera a abrirla)."""
+        if self._escucha.dictado_activo:
+            threading.Thread(target=self.asistente.precalentar, name="Precalentar", daemon=True).start()
+
+    def al_tocar(self) -> None:
+        """Tocaste la burbuja: escuchar tu pedido."""
+        if not self._escucha.dictado_activo:
+            self.mensaje.emit("Activa el asistente en Configuración para hablar conmigo.")
+            return
+        if not self._escucha.activa:
+            self.mensaje.emit("Enciende el micrófono para hablar conmigo.")
+            return
+        voz().detener()
+        self._esperando_pedido = True
+        self._escucha.escuchar_pedido()
+        self.escuchando.emit()
+
     @staticmethod
     def _transcribir(audio: bytes) -> str:
         """Lo usa la escucha (en su hilo) al terminar cada pedido."""
@@ -124,76 +157,84 @@ class ControladorIA(QObject):
         log.info("Whisper: %.1f s", time.monotonic() - inicio)
         return texto
 
-    def _al_dictar(self, _audio: bytes, texto: str, origen: str) -> None:
+    def _al_dictar(self, _audio: bytes, texto: str, _origen: str) -> None:
+        self._esperando_pedido = False
+        self._retenida = None  # lo nuevo reemplaza a la respuesta que esperaba
+        self.pensando.emit(True)
         if self._ocupado:
+            # Sigue procesando lo anterior: esto se suma y se responde todo junto.
+            if texto:
+                self._cola.append(texto)
             return
-        self._ocupado = True
-        if origen != "cierre":
-            self.pensando.emit(True)
-        threading.Thread(target=self._procesar, args=(texto, origen), name="IA", daemon=True).start()
+        self._empezar(texto)
 
-    def _procesar(self, texto: str, origen: str) -> None:
+    def _empezar(self, texto: str) -> None:
+        self._ocupado = True
+        threading.Thread(target=self._procesar, args=(texto,), name="IA", daemon=True).start()
+
+    def _sin_pedido(self) -> None:
+        """Tocaste la burbuja pero no dijiste nada."""
+        self._esperando_pedido = False
+        if self._retenida is not None:
+            respuesta, self._retenida = self._retenida, None
+            self._mostrar(respuesta)
+        elif self._ocupado:
+            self.pensando.emit(True)
+        else:
+            self.mensaje.emit("No te escuché. Presióname y vuelve a intentarlo.")
+
+    def _procesar(self, texto: str) -> None:
         try:
             if not texto:
-                self._listo.emit(Respuesta(""), origen)
+                self._listo.emit(Respuesta("", gesto="no_entendi"))
                 return
-            pendiente = self.asistente.herramientas.pendiente
-            if pendiente is not None and pendiente.vigente:
-                # ¿Forzar el cierre de la app? «sí»/«no» se resuelven aquí, sin IA.
-                decision = respuesta_confirmacion(texto)
-                self.asistente.herramientas.pendiente = None
-                if decision is not None:
-                    if decision:
-                        pendiente.ejecutar()
-                    texto_final = (
-                        f"Listo, cerré {pendiente.titulo}." if decision else f"De acuerdo, dejo {pendiente.titulo} abierto."
-                    )
-                    self.asistente.registrar_evento(texto_final)
-                    self._listo.emit(Respuesta(texto_final), origen)
-                    return
+            # ¿Forzar un cierre o apagar ya? «sí»/«no» se resuelven sin IA.
+            confirmada = self.asistente.resolver_pendiente(texto)
+            if confirmada is not None:
+                self._listo.emit(confirmada)
+                return
             if es_cierre(texto):
                 # «Gracias», «ok»…: una sonrisa, sin hablar ni gastar IA.
-                self._listo.emit(Respuesta("", gesto="gesto"), origen)
+                self._listo.emit(Respuesta("", gesto="gesto"))
                 return
-            if origen == "cierre":
-                # Hablaste justo después de que Notivoz terminó: puede no ser para ella.
-                texto = f"[Después de terminar] {texto}"
             inicio = time.monotonic()
             respuesta = self.asistente.responder(texto)
             # Solo tiempos (nunca lo que dijiste), para medir la fluidez.
             log.info("Pedido por voz: IA %.1f s", time.monotonic() - inicio)
-            self._listo.emit(respuesta, origen)
+            self._listo.emit(respuesta)
         except ErrorAsistente as error:
-            self._fallo.emit(str(error))
+            self._listo.emit(Respuesta(str(error)))
         except Exception:
             log.exception("Error al procesar un pedido por voz")
-            self._fallo.emit("Algo falló al procesar tu pedido.")
+            self._listo.emit(Respuesta("Algo falló al procesar tu pedido."))
 
-    def _al_responder(self, respuesta: Respuesta, origen: str) -> None:
+    def _al_responder(self, respuesta: Respuesta) -> None:
         self._ocupado = False
         self.aplicar_efectos(respuesta)
+        if self._cola:
+            # Hablaste de nuevo mientras procesaba: responder todo junto (lo
+            # anterior ya está en la conversación, solo falta lo nuevo).
+            texto = "[Continúa mi pedido anterior] " + " ".join(self._cola)
+            self._cola.clear()
+            self._empezar(texto)
+            return
+        if self._esperando_pedido:
+            # Volviste a tocar la burbuja: si no dices nada, se dice esta respuesta.
+            self._retenida = respuesta
+            return
+        self._mostrar(respuesta)
+
+    def _mostrar(self, respuesta: Respuesta) -> None:
         if respuesta.gesto == "gesto":
             self.gesto.emit()
-            return
-        if respuesta.gesto == "ignorar":
-            self.pensando.emit(False)
-            return
-        if respuesta.texto:
+        elif respuesta.gesto == "no_entendi":
+            self.mensaje.emit("No te entendí. Presióname y repítelo, por favor.")
+        elif respuesta.texto:
             voz().hablar(respuesta.texto)
             self.decir_en_nube.emit(respuesta.texto)
-            self._escucha.permitir_contestar_encima()
-            if respuesta.espera_respuesta or respuesta.espera_confirmacion:
-                self._escucha.esperar_respuesta(_SEGUNDOS_PARA_CONTESTAR)
-            else:
-                self._escucha.esperar_respuesta(_SEGUNDOS_TRAS_TERMINAR, cierre=True)
-            return
-        if not respuesta.efectos.comandos_activados:
+        elif not respuesta.efectos.comandos_activados:
+            # (Un modo activado se anuncia solo.)
             self.pensando.emit(False)
-        if origen in ("activacion", "respuesta") and not respuesta.efectos.comandos_activados:
-            # No se entendió lo que dijiste: te sigue escuchando un momento.
-            self._escucha.esperar_respuesta(_SEGUNDOS_PARA_CONTESTAR)
-
-    def _al_fallar(self, mensaje: str) -> None:
-        self._ocupado = False
-        voz().hablar(mensaje)
-        self.decir_en_nube.emit(mensaje)
+        if respuesta.efectos.hizo_algo and respuesta.gesto != "gesto":
+            # Hizo lo que pediste: si no le vuelves a hablar, se despide con una carita.
+            self.gesto_al_terminar.emit()

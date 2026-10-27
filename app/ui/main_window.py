@@ -36,6 +36,7 @@ from app.ui.animaciones import PilaAnimada
 from app.ui.apariencia import apariencia, preparar_ventana_principal
 from app.ui.asistente_voz import ControladorIA
 from app.ui.bandeja import Bandeja
+from app.ui.apagado_ui import ControladorApagado
 from app.ui.burbuja import BurbujaVoz
 from app.ui.chat_view import ChatView
 from app.ui.comandos_view import ComandosView
@@ -106,6 +107,11 @@ class MainWindow(QMainWindow):
         self.indicador_enfoque.setCursor(Qt.CursorShape.PointingHandCursor)
         self.indicador_enfoque.setToolTip("Clic para terminar el modo enfoque")
         self.indicador_enfoque.hide()
+        self.indicador_apagado = QPushButton()
+        self.indicador_apagado.setObjectName("IndicadorApagado")
+        self.indicador_apagado.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.indicador_apagado.setToolTip("Clic para cancelar el apagado programado")
+        self.indicador_apagado.hide()
 
         sidebar = QWidget()
         sidebar.setObjectName("Sidebar")
@@ -117,6 +123,7 @@ class MainWindow(QMainWindow):
         lateral.addWidget(lema)
         lateral.addWidget(self.nav, stretch=1)
         lateral.addWidget(self.indicador_enfoque)
+        lateral.addWidget(self.indicador_apagado)
         self.panel_version = PanelVersion()
         lateral.addWidget(self.panel_version)
         lateral.addWidget(self.estado_escucha)
@@ -137,6 +144,9 @@ class MainWindow(QMainWindow):
         self.enfoque.cambiado.connect(self._al_cambiar_enfoque)
         self.enfoque.terminado.connect(self._al_terminar_enfoque)
         self.indicador_enfoque.clicked.connect(self._terminar_enfoque_manual)
+        self.apagado = ControladorApagado(self)
+        self.apagado.cambiado.connect(self._al_cambiar_apagado)
+        self.indicador_apagado.clicked.connect(self.apagado.cancelar)
         self.programador_rutinas = ProgramadorRutinas(self)
         self.programador_rutinas.ejecutar.connect(self.ejecutar_rutina)
         self.monitor_ocio = MonitorOcio(self)
@@ -160,23 +170,29 @@ class MainWindow(QMainWindow):
         self.escucha = Escucha(self)
         self.burbuja = BurbujaVoz(lambda: self.escucha.nivel)
         self.escucha.estado_cambiado.connect(self._al_cambiar_estado_escucha)
-        self.escucha.activacion_oida.connect(self.burbuja.escuchar)
+        self.escucha.activacion_oida.connect(self.burbuja.esperar_toque)
         self.escucha.comando_detectado.connect(self._comando_por_voz)
         self.escucha.cierre_detectado.connect(self._cierre_por_voz)
         self._escucha_antes_de_prueba = False
         self._probando_microfono = False
-        self.escucha.interrupcion.connect(self.burbuja.escuchar)
-        self.escucha.ventana_abierta.connect(self.burbuja.escuchar)
+        self.escucha.interrupcion.connect(self.burbuja.esperar_toque)
 
         # --- IA: pedidos libres por voz ---
         self.ia = ControladorIA(self.escucha, self)
         self.chat.conectar(self.ia)
-        self.ia.pensando.connect(lambda si: self.burbuja.ejecutar() if si else self.burbuja.ocultar())
+        self.ia.pensando.connect(lambda si: self.burbuja.procesando() if si else self.burbuja.ocultar())
         self.ia.tareas_cambiaron.connect(self.pendientes.recargar)
         self.ia.notas_cambiaron.connect(self.notas.recargar)
         self.ia.activar_modo.connect(self.ejecutar_comando)
         self.ia.decir_en_nube.connect(self.burbuja.decir)
+        self.ia.escuchando.connect(self.burbuja.escuchando)
+        self.ia.mensaje.connect(self.burbuja.mensaje)
+        self.burbuja.tocada.connect(self.ia.al_tocar)
+        self.burbuja.set_tecla(ajustes.obtener(Clave.TECLA_HABLAR))
+        self.configuracion.tecla_hablar_cambiada.connect(self.burbuja.set_tecla)
+        self.escucha.activacion_oida.connect(self.ia.al_oir_activacion)
         self.ia.gesto.connect(self.burbuja.gesto)
+        self.ia.gesto_al_terminar.connect(self.burbuja.gesto_al_terminar)
         self.ia.mostrar_ventana.connect(self._mostrar_seccion)
 
         # --- Señales de las vistas ---
@@ -192,6 +208,7 @@ class MainWindow(QMainWindow):
         self.configuracion.escucha_config_cambiada.connect(self._reiniciar_escucha)
         self.configuracion.modelo_instalado.connect(self._reiniciar_escucha)
         self.configuracion.personalidad_cambiada.connect(self.comandos.recargar)
+        self.configuracion.personalidad_cambiada.connect(self.ia.preparar_confirmaciones)
         self.configuracion.ia_cambiada.connect(self.ia.actualizar)
         self.configuracion.ia_cambiada.connect(self.chat.actualizar)
 
@@ -232,10 +249,12 @@ class MainWindow(QMainWindow):
 
     def _comando_por_voz(self, comando_id: int) -> None:
         self.burbuja.ejecutar()
+        self.burbuja.gesto_al_terminar()  # abrió el modo: al terminar, una carita
         self.ejecutar_comando(comando_id)
 
     def _cierre_por_voz(self, comando_id: int) -> None:
         self.burbuja.ejecutar()
+        self.burbuja.gesto_al_terminar()
         voz().hablar(self._cerrar_comando(comando_id))
 
     def ejecutar_comando(self, comando_id: int) -> None:
@@ -280,6 +299,10 @@ class MainWindow(QMainWindow):
         self.indicador_enfoque.setText(f"{texto}  ✕" if texto else "")
         self.indicador_enfoque.setVisible(bool(texto))
         self.bandeja.setToolTip(f"{APP_NAME} — {texto}" if texto else APP_NAME)
+
+    def _al_cambiar_apagado(self, texto: str) -> None:
+        self.indicador_apagado.setText(f"{texto}  ✕" if texto else "")
+        self.indicador_apagado.setVisible(bool(texto))
 
     def _terminar_enfoque_manual(self) -> None:
         if self.enfoque.terminar():

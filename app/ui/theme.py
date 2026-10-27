@@ -258,6 +258,14 @@ QLineEdit:hover, QPlainTextEdit:hover, QComboBox:hover {{
 QLineEdit:focus, QPlainTextEdit:focus, QComboBox:focus {{
     border-color: {c.acento};
 }}
+/* Un campo en la ventana de «ver» (solo lectura, como un campo del formulario). */
+QTextEdit#CampoLectura {{
+    background: {c.superficie};
+    border: 1px solid {c.borde};
+    border-radius: 6px;
+    selection-background-color: {c.acento};
+    selection-color: white;
+}}
 QComboBox::drop-down {{
     border: none;
     width: 22px;
@@ -590,7 +598,7 @@ QPushButton#AvisoAccion:hover {{
 #ChipIcono {{
     background: transparent;
 }}
-QPushButton#IndicadorEnfoque {{
+QPushButton#IndicadorEnfoque, QPushButton#IndicadorApagado {{
     background: rgba({_ACENTO_RGB}, 0.16);
     border: 1px solid rgba({_ACENTO_RGB}, 0.55);
     border-radius: 8px;
@@ -600,7 +608,7 @@ QPushButton#IndicadorEnfoque {{
     padding: 7px 10px;
     margin: 8px 12px 2px 12px;
 }}
-QPushButton#IndicadorEnfoque:hover {{
+QPushButton#IndicadorEnfoque:hover, QPushButton#IndicadorApagado:hover {{
     background: rgba({_ACENTO_RGB}, 0.28);
     margin: 6px 10px 0 10px;
 }}

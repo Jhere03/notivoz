@@ -36,6 +36,7 @@ from app.services.voz import VOCES_NEURALES, VOZ_WINDOWS, voz
 from app.ui import theme
 from app.ui.apariencia import acrilico_disponible, apariencia
 from app.ui.ia_config import SeccionIA
+from app.ui.tecla_hablar import BotonTecla
 from app.ui.widgets import HoraEdit
 
 
@@ -119,6 +120,7 @@ class ConfiguracionView(QWidget):
     prueba_microfono_cambiada = Signal(bool)
     personalidad_cambiada = Signal()
     ia_cambiada = Signal()
+    tecla_hablar_cambiada = Signal(object)
     _descarga_progreso = Signal(int, int)
     _descarga_terminada = Signal(str)  # mensaje de error, o "" si fue bien
 
@@ -311,12 +313,27 @@ class ConfiguracionView(QWidget):
         self.microfono.setCurrentIndex(max(self.microfono.findData(ajustes.obtener(Clave.MICROFONO)), 0))
         self.microfono.currentIndexChanged.connect(self._cambiar_microfono)
 
+        self.tecla_hablar = BotonTecla(ajustes.obtener(Clave.TECLA_HABLAR))
+        self.tecla_hablar.cambiada.connect(self._cambiar_tecla_hablar)
+        quitar_tecla = QPushButton("Quitar")
+        quitar_tecla.setObjectName("Secundario")
+        quitar_tecla.setCursor(Qt.CursorShape.PointingHandCursor)
+        quitar_tecla.clicked.connect(self.tecla_hablar.quitar)
+
         l_escucha.addWidget(self.estado_modelo)
         l_escucha.addLayout(fila_descarga)
         l_escucha.addWidget(como_usar)
         l_escucha.addWidget(self._fila("Micrófono", self.microfono))
         l_escucha.addLayout(fila_prueba)
         l_escucha.addWidget(self.ayuda_prueba)
+        l_escucha.addWidget(self._fila("Tecla", self.tecla_hablar, quitar_tecla))
+        l_escucha.addWidget(
+            _ayuda(
+                f"Con el asistente con IA: tras decir «{NOMBRE_ACTIVACION}», pulsa esta tecla una vez en vez de "
+                "presionar la burbuja (también mientras procesa, para volver a hablar). Solo se usa mientras "
+                "la burbuja está a la vista; el resto del tiempo la tecla escribe normal."
+            )
+        )
         l_escucha.addWidget(
             _ayuda(
                 "El reconocimiento de voz funciona sin internet: el audio del micrófono nunca sale "
@@ -509,6 +526,10 @@ class ConfiguracionView(QWidget):
             menu.addAction("Abre primero la app (por ejemplo Steam) y vuelve a intentarlo").setEnabled(False)
         menu.exec(QCursor.pos())
 
+    def _cambiar_tecla_hablar(self, tecla: dict | None) -> None:
+        ajustes.guardar(Clave.TECLA_HABLAR, tecla)
+        self.tecla_hablar_cambiada.emit(tecla)
+
     def _quitar_app_ocio(self) -> None:
         for item in self.apps_ocio.selectedItems():
             self.apps_ocio.takeItem(self.apps_ocio.row(item))
@@ -518,6 +539,8 @@ class ConfiguracionView(QWidget):
         nombre = self.voz.currentData()
         voz().voz_neural = nombre
         ajustes.guardar(Clave.VOZ_NOMBRE, nombre)
+        # Las confirmaciones del asistente, listas con la voz nueva.
+        voz().preparar(ajustes.frases_actuales().confirmaciones())
         # Una muestra corta para escuchar la voz elegida.
         if nombre:
             etiqueta = VOCES_NEURALES[nombre].split(" · ")[0]

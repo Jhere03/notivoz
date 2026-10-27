@@ -1,6 +1,23 @@
-"""Textos de fecha y hora para mostrar en la interfaz."""
+"""Textos de fecha y hora para mostrar en la interfaz, y textos que se acomodan."""
 
+import re
 from datetime import date, datetime, timedelta
+
+_LARGO_SIN_CORTE = 24
+_PALABRA_LARGA = re.compile(rf"\S{{{_LARGO_SIN_CORTE + 1},}}")
+_CORTE_INVISIBLE = "\u200b"  # espacio de ancho cero: deja saltar de línea sin verse
+
+
+def partible(texto: str) -> str:
+    """Una «palabra» larguísima sin espacios (un enlace, «dasdasdas…») no deja
+    hacer el salto de línea y empuja la ventana: se le marcan puntos de corte
+    invisibles para que el texto se acomode al ancho disponible."""
+    return _PALABRA_LARGA.sub(
+        lambda m: _CORTE_INVISIBLE.join(
+            m.group()[i : i + _LARGO_SIN_CORTE] for i in range(0, len(m.group()), _LARGO_SIN_CORTE)
+        ),
+        texto,
+    )
 
 _DIAS = ["lun", "mar", "mié", "jue", "vie", "sáb", "dom"]
 

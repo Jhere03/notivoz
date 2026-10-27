@@ -5,10 +5,10 @@ Escucha el micrófono en un hilo propio con una gramática cerrada: solo puede
 que lo hace preciso y evita que cualquier conversación dispare algo. Mientras
 Notivoz habla, solo escucha las palabras para interrumpirlo.
 
-Con la IA activa, lo que se dice tras «Notivoz» y no es un comando exacto se
-entrega como audio (dictado_listo) para transcribirlo con Whisper: ningún
-pedido llega a la IA sin la palabra de activación o sin que Notivoz haya
-hecho una pregunta justo antes.
+Con la IA activa, los pedidos libres se escuchan solo cuando tocas la burbuja
+(escuchar_pedido): «Notivoz» la hace aparecer y, al tocarla, lo que digas se
+entrega como audio (dictado_listo) para transcribirlo con Whisper. Así ninguna
+conversación llega a la IA sin que lo pidas.
 """
 
 import collections
@@ -56,11 +56,16 @@ _FRECUENCIA = FRECUENCIA
 _CONFIANZA_MINIMA = 0.55
 _SEGUNDOS_TRAS_ACTIVACION = 5  # tras decir solo «Notivoz», tiempo para decir el comando
 _SEGUNDOS_PARA_RESPONDER = 8  # tras una pregunta de Notivoz, tiempo para contestar
+_SEGUNDOS_PARA_EMPEZAR = 8  # tras tocar la burbuja, tiempo para empezar a hablar
 _MINIMO_TRANSCRIBIR = int(0.3 * FRECUENCIA) * 2  # menos audio que esto no tiene palabras
 # Pedidos libres (con la IA): termina tras esta pausa, y como mucho dura esto.
 _PAUSA_FIN_DICTADO = 1.3
 # Si la frase quedó colgando («…y», «…o sea», «…este»), estás pensando: esperar más.
 _PAUSA_PENSANDO = 3.0
+# Si el reconocedor no cierra la frase, este silencio también termina el pedido.
+_SILENCIO_FIN_DICTADO = 1.8
+# Voz hace menos de esto: retomaste la frase justo al cumplirse la pausa, no cortar.
+_RETOMO_LA_FRASE = 0.4
 # Nivel (0 a 1) a partir del cual un bloque se considera voz: retomaste la frase.
 _NIVEL_VOZ = 0.12
 _MAXIMO_DICTADO = 45
@@ -226,6 +231,12 @@ class Escucha(QObject):
     dictado_listo = Signal(bytes, str, str)
     # Se abrió una ventana para hablar sin «Notivoz» (milisegundos), para la burbuja.
     ventana_abierta = Signal(int)
+    # Tocaste la burbuja pero no dijiste nada a tiempo.
+    sin_pedido = Signal()
+    # Dejaste de hablar (se transcribe lo dicho) / la frase quedó a medias y te
+    # sigue escuchando.
+    pedido_terminado = Signal()
+    pedido_continua = Signal()
     # El usuario interrumpió a Notivoz mientras hablaba («Notivoz», «espera»…).
     interrupcion = Signal()
 
@@ -245,6 +256,7 @@ class Escucha(QObject):
         # Mientras Notivoz pregunta, cualquier respuesta tuya lo interrumpe.
         self._interrupcion_libre = False
         self._ventana_cierre = False
+        self._pedido_solicitado = False
         # Voz a texto para los pedidos libres (Whisper); lo pone quien usa la IA.
         self.transcribir: Callable[[bytes], str] | None = None
 
@@ -256,6 +268,11 @@ class Escucha(QObject):
         """frase normalizada → id del comando. Se aplica sin reiniciar la escucha."""
         self._frases = dict(frases)
         self._cambio_frases.set()
+
+    def escuchar_pedido(self) -> None:
+        """Tocaste la burbuja: escuchar ahora tu pedido (sin decir «Notivoz»);
+        termina solo cuando dejas de hablar."""
+        self._pedido_solicitado = True
 
     def permitir_contestar_encima(self) -> None:
         """Mientras Notivoz dice la respuesta de la IA, hablarle encima lo calla
@@ -347,13 +364,11 @@ class Escucha(QObject):
         dictado_origen = "activacion"
         armado_origen = "activacion"
         inicio_frase = 0.0  # cuándo empezaste a hablar en la frase en curso
+        ultimo_sonido = 0.0  # la última vez que se oyó voz
         # Si el pedido se alargó por quedar a medias: lo ya transcrito y hasta
         # dónde (así Whisper no vuelve a transcribir todo).
         texto_previo = ""
         largo_previo = 0
-        # Audio de un «Notivoz» suelto: Vosk a veces corta ahí el inicio del pedido
-        # («Notivoz, recuér|dame…»), así que se antepone al dictado que siga.
-        audio_activacion = b""
         self._cambio_frases.set()
         reproductor().set_conductor_externo(duplex)
         with stream:
@@ -374,14 +389,21 @@ class Escucha(QObject):
                 ahora = time.monotonic()
 
                 # Pedido libre en curso: termina tras una pausa, o al pasar el máximo.
+                # (Si el reconocedor no cerró la frase pero hace rato que no hablas,
+                # también terminó.)
                 if dictado and (
-                    (dictado_fin and ahora > dictado_fin) or ahora - dictado_inicio > _MAXIMO_DICTADO
+                    (dictado_fin and ahora > dictado_fin and ahora - ultimo_sonido > _RETOMO_LA_FRASE)
+                    or (not dictado_fin and ahora - ultimo_sonido > _SILENCIO_FIN_DICTADO)
+                    or ahora - dictado_inicio > _MAXIMO_DICTADO
                 ):
                     cortado = not dictado_fin  # llegó al máximo a mitad de frase
                     if cortado:
                         dictado += frase_audio
                         frase_audio.clear()
                         reconocedor.Reset()
+                    # Dejaste de hablar: la burbuja pasa a «Procesando» ya, sin
+                    # esperar a que termine la transcripción.
+                    self.pedido_terminado.emit()
                     nuevo = bytes(dictado[largo_previo:])
                     texto = self.transcribir(nuevo) if self.transcribir and len(nuevo) > _MINIMO_TRANSCRIBIR else ""
                     texto = f"{texto_previo} {texto}".strip()
@@ -391,7 +413,7 @@ class Escucha(QObject):
                         dictado_extendido = True
                         texto_previo, largo_previo = texto, len(dictado)
                         dictado_fin = time.monotonic() + _PAUSA_PENSANDO
-                        self.activacion_oida.emit()
+                        self.pedido_continua.emit()
                         continue
                     self.dictado_listo.emit(bytes(dictado), texto, dictado_origen)
                     dictado.clear()
@@ -461,6 +483,19 @@ class Escucha(QObject):
                         inicio_frase = ahora
                         self._respuesta_esperada = 0.0
                     self._interrupcion_libre = False
+                if self._pedido_solicitado:
+                    # Tocaste la burbuja: escuchar tu pedido desde ahora.
+                    self._pedido_solicitado = False
+                    armado_hasta = ahora + _SEGUNDOS_PARA_EMPEZAR
+                    armado_origen = "clic"
+                    reconocedor.Reset()
+                    frase_audio.clear()
+                    inicio_frase = 0.0
+                elif armado_origen == "clic" and armado_hasta and ahora > armado_hasta and not dictado and not inicio_frase:
+                    # La tocaste pero no dijiste nada.
+                    armado_hasta = 0.0
+                    armado_origen = "activacion"
+                    self.sin_pedido.emit()
                 # Seguir la conversación: tras la respuesta de Notivoz (o si no te
                 # entendió), escucharte unos segundos sin exigir «Notivoz».
                 if self._respuesta_esperada:
@@ -470,6 +505,8 @@ class Escucha(QObject):
                         self.ventana_abierta.emit(int(self._respuesta_esperada * 1000))
                     self._respuesta_esperada = 0.0
                 self.nivel = nivel_de(datos)
+                if self.nivel > _NIVEL_VOZ:
+                    ultimo_sonido = ahora
                 frase_audio += datos
 
                 if not reconocedor.AcceptWaveform(datos):
@@ -514,33 +551,28 @@ class Escucha(QObject):
                     if not frase and not self._sigue_hablando(resultado):
                         armado_hasta = ahora + _SEGUNDOS_TRAS_ACTIVACION
                         armado_origen = "activacion"
-                        audio_activacion = audio_frase
                         winsound.Beep(988, 120)
                         self.activacion_oida.emit()
                         continue
                     if frase and self._emitir_comando(frase, validas):
                         armado_hasta = 0.0
                         continue
-                    if self.dictado_activo:
-                        # «Notivoz, abre Spotify»: el pedido viene en la misma frase.
-                        dictado += audio_frase
-                        dictado_origen = "activacion"
-                        dictado_inicio = ahora
-                        dictado_fin = ahora + self._pausa_tras(resultado)
-                        self.activacion_oida.emit()
+                    # «Notivoz, …» sin ser un comando: aparece la burbuja y, si la
+                    # tocas, te escucha (el pedido no se toma de esta frase).
+                    armado_hasta = ahora + _SEGUNDOS_TRAS_ACTIVACION
+                    armado_origen = "activacion"
+                    self.activacion_oida.emit()
                     continue
                 if empezo >= armado_hasta:
                     continue
                 if texto and self._emitir_comando(texto, validas):
                     armado_hasta = 0.0
-                    audio_activacion = b""
-                elif self.dictado_activo and hubo_voz:
-                    dictado += audio_activacion + audio_frase
-                    audio_activacion = b""
-                    dictado_origen = armado_origen
+                elif armado_origen == "clic" and self.dictado_activo and hubo_voz:
+                    # Tocaste la burbuja: esto es tu pedido.
+                    dictado += audio_frase
+                    dictado_origen = "clic"
                     dictado_inicio = ahora
                     dictado_fin = ahora + self._pausa_tras(resultado)
-                    self.activacion_oida.emit()
         reproductor().set_conductor_externo(False)
         self.nivel = 0.0
         log.info("Escucha de comandos detenida")

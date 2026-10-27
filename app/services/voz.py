@@ -78,6 +78,25 @@ class Voz:
     def cerrar(self) -> None:
         self._cola.put(None)
 
+    def preparar(self, textos: list[str]) -> None:
+        """Genera de antemano (en segundo plano) el audio de frases que se dirán
+        seguido, para que suenen al instante."""
+        if not self.voz_neural:
+            return
+
+        def generar() -> None:
+            for texto in textos:
+                archivo = self._archivo(" ".join(texto.split()))
+                if archivo.exists():
+                    continue
+                try:
+                    _generar_audio(texto, self.voz_neural, *self._ajustes_neural(), archivo)
+                except Exception as error:
+                    log.info("No se pudo preparar la voz de una frase: %s", error)
+                    return
+
+        threading.Thread(target=generar, name="Preparar voz", daemon=True).start()
+
     def detener(self) -> None:
         """Calla ya: descarta lo que estaba en cola y corta la frase en curso
         (la voz de Windows de respaldo termina la frase que estaba diciendo)."""
@@ -132,15 +151,10 @@ class Voz:
 
     def _hablar_neural(self, texto: str) -> bool:
         """Devuelve False si no se pudo (sin internet, etc.) para usar el respaldo."""
-        voz = self.voz_neural
-        velocidad = f"{int(self.velocidad) * 10:+d}%"
-        volumen = f"{int(self.volumen) - 100:+d}%"
-        archivo = _carpeta_cache() / (
-            hashlib.sha1(f"{voz}|{velocidad}|{volumen}|{texto}".encode()).hexdigest() + ".mp3"
-        )
+        archivo = self._archivo(texto)
         try:
             if not archivo.exists():
-                _generar_audio(texto, voz, velocidad, volumen, archivo)
+                _generar_audio(texto, self.voz_neural, *self._ajustes_neural(), archivo)
                 _limpiar_cache()
             pcm, frecuencia, canales = mp3.decodificar(archivo.read_bytes())
             muestras = np.frombuffer(pcm, dtype=np.int16)
@@ -153,6 +167,16 @@ class Voz:
             log.warning("Voz neural no disponible (%s); se usa la voz de Windows.", error)
             self._neural_pausada_hasta = time.monotonic() + _PAUSA_TRAS_FALLO
             return False
+
+    def _ajustes_neural(self) -> tuple[str, str]:
+        """Velocidad y volumen como los pide edge-tts."""
+        return f"{int(self.velocidad) * 10:+d}%", f"{int(self.volumen) - 100:+d}%"
+
+    def _archivo(self, texto: str) -> Path:
+        """Audio en caché de esta frase con la voz y ajustes actuales."""
+        velocidad, volumen = self._ajustes_neural()
+        clave = f"{self.voz_neural}|{velocidad}|{volumen}|{texto}"
+        return _carpeta_cache() / (hashlib.sha1(clave.encode()).hexdigest() + ".mp3")
 
     def _hablar_windows(self, texto: str) -> None:
         try:

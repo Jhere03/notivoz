@@ -1,7 +1,6 @@
 """Chateemos: escribirle a Notivoz. Es el mismo asistente que por voz (mismas
 acciones, mismos límites y la misma seguridad), pero responde por escrito."""
 
-import random
 import threading
 
 from PySide6.QtCore import Qt, QTimer, Signal
@@ -17,10 +16,11 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from app.services import ajustes
 from app.services.asistente import ErrorAsistente, Respuesta
 from app.ui.asistente_voz import ControladorIA, es_cierre
+from app.ui.formato import partible
 
-_GESTOS = ("😊", "👍", "🙌", "✨", "😄", "👌", "💜", "🙂")
 _LARGO_MAXIMO = 1000
 
 
@@ -28,7 +28,7 @@ class _Mensaje(QFrame):
     def __init__(self, texto: str, de_usuario: bool, error: bool = False):
         super().__init__()
         self.setObjectName("Fila")
-        etiqueta = QLabel(texto)
+        etiqueta = QLabel(partible(texto))
         etiqueta.setWordWrap(True)
         etiqueta.setTextFormat(Qt.TextFormat.PlainText)  # nunca interpretar HTML
         etiqueta.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
@@ -140,7 +140,7 @@ class ChatView(QWidget):
         self._agregar(texto, de_usuario=True)
         if es_cierre(texto):
             # «Gracias», «ok»…: una sonrisa, sin gastar IA.
-            self._agregar(random.choice(_GESTOS), de_usuario=False)
+            self._agregar(ajustes.frases_actuales().gesto(), de_usuario=False)
             return
         self._esperando = True
         self.escribiendo.show()
@@ -149,7 +149,8 @@ class ChatView(QWidget):
 
     def _pedir(self, texto: str) -> None:
         try:
-            self._respuesta.emit(self._controlador.asistente.responder(texto))
+            asistente = self._controlador.asistente
+            self._respuesta.emit(asistente.resolver_pendiente(texto) or asistente.responder(texto))
         except ErrorAsistente as error:
             self._error.emit(str(error))
         except Exception:
@@ -159,7 +160,10 @@ class ChatView(QWidget):
         self._terminar_espera()
         self._controlador.aplicar_efectos(respuesta)
         if respuesta.gesto == "gesto":
-            self._agregar(random.choice(_GESTOS), de_usuario=False)
+            self._agregar(ajustes.frases_actuales().gesto(), de_usuario=False)
+        elif respuesta.texto and respuesta.efectos.hizo_algo:
+            # Terminó lo que pediste: la confirmación con un emoji de su personalidad.
+            self._agregar(f"{respuesta.texto} {ajustes.frases_actuales().gesto()}", de_usuario=False)
         elif respuesta.texto:
             self._agregar(respuesta.texto, de_usuario=False)
         elif respuesta.efectos.comandos_activados:
