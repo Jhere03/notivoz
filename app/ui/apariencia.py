@@ -75,6 +75,9 @@ class _Apariencia(QObject):
             nombre = theme.OSCURO  # sin acrílico (Windows 10) se vería mal
         theme._activar(nombre)
         self._app.setStyleSheet(theme.QSS)
+        from app.ui.iconos_menu import recolorear  # (iconos_menu usa el tema)
+
+        recolorear()
         for ventana in self._app.topLevelWidgets():
             if _es_ventana_tematizable(ventana) and ventana.isVisible():
                 _aplicar_dwm(ventana, theme.es_oscuro(), self.translucido and isinstance(ventana, QMainWindow))

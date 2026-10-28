@@ -18,6 +18,7 @@ from PySide6.QtWidgets import (
 )
 
 from app.services import clientes as servicio
+from app.ui.iconos_menu import poner_icono
 
 ID_ROLE = Qt.ItemDataRole.UserRole
 
@@ -37,8 +38,9 @@ class ClientesDialog(QDialog):
         self.nombre.setPlaceholderText("Nombre del nuevo cliente")
         self.nombre.setMaxLength(120)
         self.nombre.returnPressed.connect(self.agregar)
-        btn_agregar = QPushButton("+  Agregar")
+        btn_agregar = QPushButton("Agregar")
         btn_agregar.setObjectName("Primario")
+        poner_icono(btn_agregar, "mas", "primario")
         btn_agregar.setCursor(Qt.CursorShape.PointingHandCursor)
         btn_agregar.setAutoDefault(False)
         btn_agregar.clicked.connect(self.agregar)

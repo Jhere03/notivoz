@@ -82,7 +82,7 @@ class BotonTecla(QPushButton):
         self.grabKeyboard()
 
     def _mostrar(self) -> None:
-        self.setText(f"⌨  {self._tecla['nombre']}" if self._tecla else "⌨  Sin asignar: presiona para elegir")
+        self.setText(f"Tecla: {self._tecla['nombre']}" if self._tecla else "Sin asignar: presiona para elegir")
 
     def event(self, evento) -> bool:
         if self._esperando and evento.type() == QEvent.Type.KeyPress:

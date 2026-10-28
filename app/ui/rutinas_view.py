@@ -28,6 +28,8 @@ from app.services.rutinas import DIAS_CORTOS, DatosRutina
 from app.ui.animaciones import aparecer, desvanecer
 from app.ui.avisos import Tipo, avisar
 from app.ui.widgets import HoraEdit
+from app.ui.iconos_menu import poner_icono
+from app.ui.widgets import EstadoVacio
 
 
 def describir_accion(rutina: Rutina) -> str:
@@ -201,8 +203,9 @@ class RutinaCard(QFrame):
         activo = QCheckBox("Activa")
         activo.setChecked(rutina.activo)
         activo.toggled.connect(lambda v: self.activo_cambiado.emit(self.rutina_id, v))
-        probar = QPushButton("▶  Probar")
+        probar = QPushButton("Probar")
         probar.setObjectName("Secundario")
+        poner_icono(probar, "play", "secundario")
         probar.setCursor(Qt.CursorShape.PointingHandCursor)
         probar.setToolTip("Hacerla ahora, sin esperar la hora")
         probar.clicked.connect(lambda: self.probar.emit(self.rutina_id))
@@ -255,8 +258,9 @@ class RutinasView(QWidget):
         subtitulo.setObjectName("Resumen")
         subtitulo.setWordWrap(True)
 
-        nueva = QPushButton("+  Nueva rutina")
+        nueva = QPushButton("Nueva rutina")
         nueva.setObjectName("Primario")
+        poner_icono(nueva, "mas", "primario")
         nueva.setCursor(Qt.CursorShape.PointingHandCursor)
         nueva.clicked.connect(self.nueva)
 
@@ -304,10 +308,12 @@ class RutinasView(QWidget):
             card.activo_cambiado.connect(self._cambiar_activo)
             self._layout_lista.addWidget(card)
         if not rutinas:
-            vacio = QLabel("Aún no tienes rutinas.\nPulsa «+ Nueva rutina» para crear la primera.")
-            vacio.setObjectName("Vacio")
-            vacio.setAlignment(Qt.AlignmentFlag.AlignCenter)
-            vacio.setMinimumHeight(260)
+            vacio = EstadoVacio(
+                "rutinas",
+                "Aún no tienes rutinas\n"
+                "Pulsa «Nueva rutina» para que Notivoz haga algo solo, ciertos días a cierta hora.",
+            )
+            vacio.setMinimumHeight(320)
             self._layout_lista.addWidget(vacio)
         self._layout_lista.addStretch()
 

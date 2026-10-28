@@ -21,6 +21,8 @@ from app.services.escucha import NOMBRE_ACTIVACION
 from app.ui.animaciones import aparecer, desvanecer
 from app.ui.avisos import Tipo, avisar
 from app.ui.comando_dialog import ComandoDialog, icono_de
+from app.ui.iconos_menu import poner_icono
+from app.ui.widgets import EstadoVacio
 
 _MAX_CHIPS = 6
 
@@ -45,12 +47,14 @@ class ComandoCard(QFrame):
         activo.setChecked(comando.activo)
         activo.toggled.connect(lambda v: self.activo_cambiado.emit(self.comando_id, v))
 
-        ejecutar = QPushButton("▶  Ejecutar")
+        ejecutar = QPushButton("Ejecutar")
         ejecutar.setObjectName("Secundario")
+        poner_icono(ejecutar, "play", "secundario")
         ejecutar.setCursor(Qt.CursorShape.PointingHandCursor)
         ejecutar.setToolTip("Abrir ahora todas sus aplicaciones")
         ejecutar.clicked.connect(lambda: self.ejecutar.emit(self.comando_id))
-        cerrar = QPushButton("■  Cerrar")
+        cerrar = QPushButton("Cerrar")
+        poner_icono(cerrar, "stop")
         cerrar.setCursor(Qt.CursorShape.PointingHandCursor)
         cerrar.setToolTip(
             "Cierra las aplicaciones que abrió este comando (como al pulsar la X). "
@@ -140,8 +144,9 @@ class ComandosView(QWidget):
         self.btn_escucha.setCursor(Qt.CursorShape.PointingHandCursor)
         self.btn_escucha.toggled.connect(self._al_cambiar_escucha)
 
-        self.btn_nuevo = QPushButton("+  Nuevo comando")
+        self.btn_nuevo = QPushButton("Nuevo comando")
         self.btn_nuevo.setObjectName("Primario")
+        poner_icono(self.btn_nuevo, "mas", "primario")
         self.btn_nuevo.setCursor(Qt.CursorShape.PointingHandCursor)
         self.btn_nuevo.clicked.connect(self.nuevo)
 
@@ -160,7 +165,7 @@ class ComandosView(QWidget):
             f"Di «{NOMBRE_ACTIVACION}» y luego la frase, por ejemplo «{NOMBRE_ACTIVACION}, modo trabajo». "
             f"También puedes decir solo «{NOMBRE_ACTIVACION}», esperar el pitido y decir la frase. "
             "Cuando todas las aplicaciones estén abiertas, Notivoz te lo dirá. "
-            f"Para cerrarlas di «{NOMBRE_ACTIVACION}, cierra modo relax» o usa el botón ■ Cerrar."
+            f"Para cerrarlas di «{NOMBRE_ACTIVACION}, cierra modo relax» o usa el botón «Cerrar»."
         )
         ayuda.setObjectName("Ayuda")
         ayuda.setWordWrap(True)
@@ -188,12 +193,13 @@ class ComandosView(QWidget):
         self.recargar()
 
     def set_estado_escucha(self, texto: str, escuchando: bool) -> None:
-        self.estado.setText(("🎙  " if escuchando else "") + texto)
+        self.estado.setText(texto)
         self.btn_escucha.blockSignals(True)
         self.btn_escucha.setChecked(escuchando)
         self.btn_escucha.blockSignals(False)
-        self.btn_escucha.setText("🎙  Escuchando" if escuchando else "🎙  Activar micrófono")
+        self.btn_escucha.setText("Escuchando" if escuchando else "Activar micrófono")
         self.btn_escucha.setObjectName("Primario" if escuchando else "Secundario")
+        poner_icono(self.btn_escucha, "microfono", "primario" if escuchando else "secundario")
         # Reaplicar el estilo tras cambiar el objectName.
         self.btn_escucha.style().unpolish(self.btn_escucha)
         self.btn_escucha.style().polish(self.btn_escucha)
@@ -221,13 +227,12 @@ class ComandosView(QWidget):
             self._layout_lista.addWidget(card)
 
         if not comandos:
-            vacio = QLabel(
-                "Aún no tienes comandos.\n"
-                "Pulsa «+ Nuevo comando» y crea, por ejemplo, «modo trabajo» con Opera GX, Steam y Spotify."
+            vacio = EstadoVacio(
+                "comandos",
+                "Aún no tienes comandos\n"
+                "Pulsa «Nuevo comando» y crea, por ejemplo, «modo trabajo» con Opera GX, Steam y Spotify.",
             )
-            vacio.setObjectName("Vacio")
-            vacio.setAlignment(Qt.AlignmentFlag.AlignCenter)
-            vacio.setMinimumHeight(260)
+            vacio.setMinimumHeight(320)
             self._layout_lista.addWidget(vacio)
         self._layout_lista.addStretch()
 

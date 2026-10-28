@@ -21,6 +21,7 @@ from app.data.models import Nota
 from app.services import notas as servicio
 from app.services.voz import voz
 from app.ui.formato import fecha_hora_corta, partible
+from app.ui.iconos_menu import poner_icono
 
 _MARGEN = 16
 _SEPARACION = 4
@@ -69,8 +70,9 @@ class AlertaRecordatorio(QWidget):
             cuando += "  (atrasado)"
         etiqueta = QLabel(f"🔔  RECORDATORIO  ·  {cuando}")
         etiqueta.setObjectName("AlertaEtiqueta")
-        cerrar = QPushButton("✕")
+        cerrar = QPushButton()
         cerrar.setObjectName("AlertaCerrar")
+        poner_icono(cerrar, "cerrar", "suave")
         cerrar.setCursor(Qt.CursorShape.PointingHandCursor)
         cerrar.setToolTip("Cerrar")
         cerrar.clicked.connect(self.close)

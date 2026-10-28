@@ -38,6 +38,7 @@ from app.ui.apariencia import acrilico_disponible, apariencia
 from app.ui.ia_config import SeccionIA
 from app.ui.tecla_hablar import BotonTecla
 from app.ui.widgets import HoraEdit
+from app.ui.iconos_menu import poner_icono
 
 
 def _seccion(titulo: str, descripcion: str = "") -> tuple[QFrame, QVBoxLayout]:
@@ -231,8 +232,9 @@ class ConfiguracionView(QWidget):
             etiqueta.setFixedWidth(70)
         self._actualizar_etiquetas()
 
-        probar = QPushButton("▶  Probar: leeme")
+        probar = QPushButton("Probar: leeme")
         probar.setObjectName("Secundario")
+        poner_icono(probar, "play", "secundario")
         probar.setCursor(Qt.CursorShape.PointingHandCursor)
         probar.clicked.connect(self._probar)
 
@@ -280,13 +282,14 @@ class ConfiguracionView(QWidget):
         como_usar = QLabel(
             f"Cada comando empieza siempre con la palabra «{NOMBRE_ACTIVACION}». "
             f"Di, por ejemplo, «{NOMBRE_ACTIVACION}, y el comando configurado», o di solo «{NOMBRE_ACTIVACION}», "
-            "espera el pitido y di el comando en los 5 segundos siguientes."
+            "espera el pitido y di el comando en los 5 segundos siguientes. "
             f"Sin «{NOMBRE_ACTIVACION}» no se ejecuta nada, así una conversación normal nunca abre aplicaciones."
         )
         como_usar.setWordWrap(True)
 
-        self.btn_probar_mic = QPushButton("🎙  Probar micrófono")
+        self.btn_probar_mic = QPushButton("Probar micrófono")
         self.btn_probar_mic.setObjectName("Secundario")
+        poner_icono(self.btn_probar_mic, "microfono", "secundario")
         self.btn_probar_mic.setCursor(Qt.CursorShape.PointingHandCursor)
         self.btn_probar_mic.setCheckable(True)
         self.btn_probar_mic.toggled.connect(self._alternar_prueba_mic)
@@ -390,7 +393,8 @@ class ConfiguracionView(QWidget):
         self.apps_ocio = QListWidget()
         self.apps_ocio.setFixedHeight(110)
         self.apps_ocio.addItems(ajustes.obtener(Clave.APPS_OCIO))
-        agregar_app = QPushButton("+ Elegir de las apps abiertas")
+        agregar_app = QPushButton("Elegir de las apps abiertas")
+        poner_icono(agregar_app, "mas")
         agregar_app.setAutoDefault(False)
         agregar_app.clicked.connect(self._agregar_app_ocio)
         quitar_app = QPushButton("Quitar")
@@ -638,8 +642,9 @@ class ConfiguracionView(QWidget):
                 self, "No se pudo probar", f"No se pudo usar el micrófono o los parlantes:\n{error}"
             )
             return
-        self.btn_probar_mic.setText("■  Terminar prueba")
+        self.btn_probar_mic.setText("Terminar prueba")
         self.btn_probar_mic.setObjectName("Primario")
+        poner_icono(self.btn_probar_mic, "stop", "primario")
         self._repolir(self.btn_probar_mic)
         self.nivel_mic.show()
         self.ayuda_prueba.show()
@@ -658,8 +663,9 @@ class ConfiguracionView(QWidget):
         self.btn_probar_mic.blockSignals(True)
         self.btn_probar_mic.setChecked(False)
         self.btn_probar_mic.blockSignals(False)
-        self.btn_probar_mic.setText("🎙  Probar micrófono")
+        self.btn_probar_mic.setText("Probar micrófono")
         self.btn_probar_mic.setObjectName("Secundario")
+        poner_icono(self.btn_probar_mic, "microfono", "secundario")
         self._repolir(self.btn_probar_mic)
         self.prueba_microfono_cambiada.emit(False)
 

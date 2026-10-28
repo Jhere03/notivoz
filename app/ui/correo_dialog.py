@@ -16,6 +16,7 @@ from app.data.models import Pendiente
 from app.services import ajustes
 from app.services.ajustes import Clave
 from app.services.redaccion import RedactorCorreo
+from app.ui.iconos_menu import poner_icono
 
 
 class CorreoDialog(QDialog):
@@ -53,8 +54,9 @@ class CorreoDialog(QDialog):
         fila_copiar_cuerpo.addStretch()
         fila_copiar_cuerpo.addWidget(self.btn_copiar_cuerpo)
 
-        otra = QPushButton("↻  Otra versión")
+        otra = QPushButton("Otra versión")
         otra.setObjectName("Secundario")
+        poner_icono(otra, "refrescar", "secundario")
         otra.setCursor(Qt.CursorShape.PointingHandCursor)
         otra.clicked.connect(self._generar)
         cerrar = QPushButton("Cerrar")

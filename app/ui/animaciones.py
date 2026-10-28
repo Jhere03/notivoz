@@ -46,7 +46,8 @@ def desvanecer(widget: QWidget, al_terminar: Callable[[], None], ms: int = 180) 
         return
     efecto = _efecto_opacidad(widget, 1.0)
     animacion = _animacion_opacidad(efecto, 1.0, 0.0, ms)
-    animacion.setEasingCurve(QEasingCurve.Type.InCubic)
+    # Salida que frena (no que arranca lento): se siente inmediata.
+    animacion.setEasingCurve(QEasingCurve.Type.OutQuad)
     animacion.finished.connect(al_terminar)
     animacion.start(QAbstractAnimation.DeletionPolicy.DeleteWhenStopped)
 
