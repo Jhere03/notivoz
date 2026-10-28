@@ -68,6 +68,13 @@ _SILENCIO_FIN_DICTADO = 1.8
 _RETOMO_LA_FRASE = 0.4
 # Nivel (0 a 1) a partir del cual un bloque se considera voz: retomaste la frase.
 _NIVEL_VOZ = 0.12
+# El umbral de voz se adapta al ruido de fondo (ventilador, PC, calle): la voz
+# tiene que sobresalir de él. Así el ruido no se confunde con que sigues hablando.
+_UMBRAL_SOBRE_RUIDO = 1.6
+_MARGEN_SOBRE_RUIDO = 0.05
+_UMBRAL_MAXIMO = 0.6
+# «Voz» sin una sola pausa durante tanto tiempo es un ruido nuevo, no alguien hablando.
+_RUIDO_CONSTANTE = 3.0
 _MAXIMO_DICTADO = 45
 _CONECTORES = set("""
 y e o u que pero este esto eh em mm mmm entonces pues bueno como sea porque de del con para
@@ -365,6 +372,10 @@ class Escucha(QObject):
         armado_origen = "activacion"
         inicio_frase = 0.0  # cuándo empezaste a hablar en la frase en curso
         ultimo_sonido = 0.0  # la última vez que se oyó voz
+        piso_ruido = 0.0  # nivel del ruido de fondo
+        umbral_voz = _NIVEL_VOZ
+        alto_desde = 0.0  # desde cuándo el nivel no baja del umbral
+        momento_clic = 0.0  # cuándo se presionó la burbuja
         # Si el pedido se alargó por quedar a medias: lo ya transcrito y hasta
         # dónde (así Whisper no vuelve a transcribir todo).
         texto_previo = ""
@@ -393,7 +404,9 @@ class Escucha(QObject):
                 # también terminó.)
                 if dictado and (
                     (dictado_fin and ahora > dictado_fin and ahora - ultimo_sonido > _RETOMO_LA_FRASE)
-                    or (not dictado_fin and ahora - ultimo_sonido > _SILENCIO_FIN_DICTADO)
+                    # 1,8 s sin voz terminan el pedido aunque el reconocedor no haya
+                    # cerrado la frase (salvo si quedó colgando y te damos más tiempo).
+                    or (ahora - ultimo_sonido > _SILENCIO_FIN_DICTADO and (not dictado_extendido or not dictado_fin))
                     or ahora - dictado_inicio > _MAXIMO_DICTADO
                 ):
                     cortado = not dictado_fin  # llegó al máximo a mitad de frase
@@ -483,19 +496,41 @@ class Escucha(QObject):
                         inicio_frase = ahora
                         self._respuesta_esperada = 0.0
                     self._interrupcion_libre = False
+                hablo_tras_clic = ultimo_sonido > momento_clic
                 if self._pedido_solicitado:
                     # Tocaste la burbuja: escuchar tu pedido desde ahora.
                     self._pedido_solicitado = False
                     armado_hasta = ahora + _SEGUNDOS_PARA_EMPEZAR
                     armado_origen = "clic"
+                    momento_clic = ahora
                     reconocedor.Reset()
                     frase_audio.clear()
                     inicio_frase = 0.0
-                elif armado_origen == "clic" and armado_hasta and ahora > armado_hasta and not dictado and not inicio_frase:
-                    # La tocaste pero no dijiste nada.
+                elif armado_origen == "clic" and armado_hasta and not dictado and not hablo_tras_clic and ahora > armado_hasta:
+                    # La tocaste pero no dijiste nada (aunque haya ruido de fondo).
                     armado_hasta = 0.0
                     armado_origen = "activacion"
+                    reconocedor.Reset()  # que no quede una frase a medias de ruido
+                    frase_audio.clear()
+                    inicio_frase = 0.0
                     self.sin_pedido.emit()
+                elif (
+                    armado_origen == "clic"
+                    and armado_hasta
+                    and not dictado
+                    and hablo_tras_clic
+                    and (ahora - ultimo_sonido > _SILENCIO_FIN_DICTADO or ahora - momento_clic > _MAXIMO_DICTADO)
+                ):
+                    # Hablaste y te callaste, pero el reconocedor no cerró la frase
+                    # (pasa con ruido de fondo): el pedido terminó igual.
+                    dictado += frase_audio
+                    frase_audio.clear()
+                    reconocedor.Reset()
+                    inicio_frase = 0.0
+                    dictado_origen = "clic"
+                    dictado_inicio = ahora
+                    dictado_fin = ahora
+                    continue
                 # Seguir la conversación: tras la respuesta de Notivoz (o si no te
                 # entendió), escucharte unos segundos sin exigir «Notivoz».
                 if self._respuesta_esperada:
@@ -505,7 +540,21 @@ class Escucha(QObject):
                         self.ventana_abierta.emit(int(self._respuesta_esperada * 1000))
                     self._respuesta_esperada = 0.0
                 self.nivel = nivel_de(datos)
-                if self.nivel > _NIVEL_VOZ:
+                # Aprender el ruido de fondo de los momentos sin voz (baja rápido,
+                # sube despacio); si el «sonido» no para nunca, también es ruido.
+                if self.nivel <= umbral_voz:
+                    rapidez = 0.3 if self.nivel < piso_ruido else 0.05
+                    piso_ruido += (self.nivel - piso_ruido) * rapidez
+                    alto_desde = 0.0
+                else:
+                    alto_desde = alto_desde or ahora
+                    if ahora - alto_desde > _RUIDO_CONSTANTE:
+                        piso_ruido += (self.nivel - piso_ruido) * 0.1
+                umbral_voz = min(
+                    _UMBRAL_MAXIMO, max(_NIVEL_VOZ, piso_ruido * _UMBRAL_SOBRE_RUIDO + _MARGEN_SOBRE_RUIDO)
+                )
+                es_voz = self.nivel > umbral_voz
+                if es_voz:
                     ultimo_sonido = ahora
                 frase_audio += datos
 
@@ -513,7 +562,7 @@ class Escucha(QObject):
                     parcial = json.loads(reconocedor.PartialResult()).get("partial", "")
                     # Bloques seguidos con voz (dos o más = retomaste la frase; uno
                     # suelto puede ser un ruido y no debe alargar la espera).
-                    bloques_voz = bloques_voz + 1 if self.nivel > _NIVEL_VOZ else 0
+                    bloques_voz = bloques_voz + 1 if es_voz else 0
                     if not inicio_frase and (parcial or bloques_voz >= 2):
                         inicio_frase = ahora
                     if dictado and (parcial or bloques_voz >= 2):
