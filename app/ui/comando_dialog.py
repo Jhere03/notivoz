@@ -28,6 +28,7 @@ from app.data.models import Comando
 from app.services import lanzador
 from app.services.comandos import DatosApp, DatosComando, normalizar_frase
 from app.services.escucha import palabras_desconocidas
+from app.ui.iconos_menu import poner_icono
 
 _ROL_DESTINO = Qt.ItemDataRole.UserRole
 
@@ -151,12 +152,13 @@ class ComandoDialog(QDialog):
         botones_apps = QHBoxLayout()
         botones_apps.setSpacing(6)
         for texto, accion in (
-            ("+ App instalada…", self._agregar_instalada),
-            ("+ Programa .exe…", self._agregar_archivo),
-            ("+ Archivo…", self._agregar_documento),
-            ("+ Web o enlace…", self._agregar_enlace),
+            ("App instalada…", self._agregar_instalada),
+            ("Programa .exe…", self._agregar_archivo),
+            ("Archivo…", self._agregar_documento),
+            ("Web o enlace…", self._agregar_enlace),
         ):
             boton = QPushButton(texto)
+            poner_icono(boton, "mas")
             boton.setAutoDefault(False)
             boton.clicked.connect(accion)
             botones_apps.addWidget(boton)

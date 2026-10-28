@@ -25,7 +25,8 @@ from app.ui.avisos import Tipo, avisar
 from app.ui.formato import fecha_hora_corta, partible, tiempo_restante
 from app.ui.nota_dialog import NotaDialog
 from app.ui.ver_dialog import icono_ojo, ver_nota
-from app.ui.widgets import FechaEdit
+from app.ui.widgets import EstadoVacio, FechaEdit
+from app.ui.iconos_menu import poner_icono
 
 _MAX_VISTA_PREVIA = 260
 
@@ -114,8 +115,9 @@ class NotasView(QWidget):
         self.resumen = QLabel()
         self.resumen.setObjectName("Resumen")
 
-        self.btn_nueva = QPushButton("+  Nueva nota")
+        self.btn_nueva = QPushButton("Nueva nota")
         self.btn_nueva.setObjectName("Primario")
+        poner_icono(self.btn_nueva, "mas", "primario")
         self.btn_nueva.setCursor(Qt.CursorShape.PointingHandCursor)
         self.btn_nueva.clicked.connect(self.nueva)
 
@@ -205,14 +207,13 @@ class NotasView(QWidget):
                 or self.filtro.currentIndex() > 0
                 or fecha is not None
             )
-            vacio = QLabel(
-                "Ninguna nota coincide con la búsqueda."
+            vacio = EstadoVacio(
+                "notas",
+                "Ninguna nota coincide con la búsqueda\nPrueba con otras palabras o quita los filtros."
                 if filtrando
-                else "Aún no tienes notas.\nPulsa «+ Nueva nota» para escribir la primera."
+                else "Aún no tienes notas\nPulsa «Nueva nota» o dile a Notivoz «recuérdame…».",
             )
-            vacio.setObjectName("Vacio")
-            vacio.setAlignment(Qt.AlignmentFlag.AlignCenter)
-            vacio.setMinimumHeight(260)
+            vacio.setMinimumHeight(320)
             self._layout_lista.addWidget(vacio)
         self._layout_lista.addStretch()
 

@@ -393,7 +393,11 @@ class MainWindow(QMainWindow):
             # El aviso «Micrófono apagado» de la escucha llega tarde: mantener la pausa.
             texto = "En pausa (probando micrófono)"
         self.comandos.set_estado_escucha(texto, escuchando)
-        self.estado_escucha.setText(("🎙  " if escuchando else "🔇  ") + texto)
+        self.estado_escucha.setText(texto)
+        # Escuchando: en color acento (ver #EstadoEscucha[activo="true"] en el tema).
+        self.estado_escucha.setProperty("activo", escuchando)
+        self.estado_escucha.style().unpolish(self.estado_escucha)
+        self.estado_escucha.style().polish(self.estado_escucha)
         if not self.enfoque.activo:
             self.bandeja.setToolTip(f"{APP_NAME} — {texto}")
 

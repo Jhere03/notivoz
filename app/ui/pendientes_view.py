@@ -44,7 +44,8 @@ from app.ui.pendientes_model import (
     PendientesModel,
     VerDelegate,
 )
-from app.ui.widgets import EstadoChip
+from app.ui.widgets import EstadoChip, EstadoVacio
+from app.ui.iconos_menu import poner_icono
 
 
 class PendientesView(QWidget):
@@ -85,8 +86,9 @@ class PendientesView(QWidget):
         self.btn_clientes.setToolTip("Agregar, editar o eliminar clientes")
         self.btn_clientes.clicked.connect(self.gestionar_clientes)
 
-        self.btn_nuevo = QPushButton("+  Nueva tarea")
+        self.btn_nuevo = QPushButton("Nueva tarea")
         self.btn_nuevo.setObjectName("Primario")
+        poner_icono(self.btn_nuevo, "mas", "primario")
         self.btn_nuevo.setCursor(Qt.CursorShape.PointingHandCursor)
         self.btn_nuevo.setToolTip("Nueva tarea (Ctrl+N)")
         self.btn_nuevo.clicked.connect(self.nuevo)
@@ -183,9 +185,7 @@ class PendientesView(QWidget):
         header.setSectionResizeMode(COL_VER, QHeaderView.ResizeMode.Fixed)
         self.tabla.setColumnWidth(COL_VER, 52)
 
-        self.vacio = QLabel()
-        self.vacio.setObjectName("Vacio")
-        self.vacio.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.vacio = EstadoVacio("pendientes")
 
         contenedor = QWidget()
         self._pila = QStackedLayout(contenedor)
@@ -237,9 +237,9 @@ class PendientesView(QWidget):
             self._pila.setCurrentWidget(self.tabla)
         else:
             self.vacio.setText(
-                "Ningún pendiente coincide con los filtros."
+                "Ninguna tarea coincide con los filtros\nPrueba con otra búsqueda o quita los filtros."
                 if filtro.activo
-                else "Aún no tienes pendientes.\nPulsa «+ Nueva tarea» para agregar la primera."
+                else "Aún no tienes tareas\nPulsa «Nueva tarea» o dile a Notivoz «crea una tarea para…»."
             )
             self._pila.setCurrentWidget(self.vacio)
 

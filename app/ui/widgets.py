@@ -294,3 +294,79 @@ class HoraEdit(QLineEdit):
 
     def setHora(self, hora: QTime) -> None:
         self.setText(hora.toString("HH:mm"))
+
+
+class EstadoVacio(QFrame):
+    """Lo que se ve cuando una lista está vacía: el icono de la sección en un
+    círculo suave, un título y una pista de qué hacer.
+
+    `setText("Título\nPista")` funciona como en un QLabel: la primera línea es
+    el título y el resto, la pista."""
+
+    _DIAMETRO = 76
+
+    def __init__(self, icono: str, texto: str = "", parent=None):
+        super().__init__(parent)
+        self.setObjectName("EstadoVacio")
+        self._icono = icono
+        self._dibujo = QLabel()
+        self._dibujo.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.titulo = QLabel()
+        self.titulo.setObjectName("VacioTitulo")
+        self.titulo.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.titulo.setWordWrap(True)
+        self.detalle = QLabel()
+        self.detalle.setObjectName("VacioDetalle")
+        self.detalle.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.detalle.setWordWrap(True)
+        self.detalle.setFixedWidth(440)
+
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(24, 40, 24, 40)
+        layout.setSpacing(6)
+        layout.addStretch()
+        layout.addWidget(self._dibujo, alignment=Qt.AlignmentFlag.AlignHCenter)
+        layout.addSpacing(10)
+        layout.addWidget(self.titulo)
+        fila = QHBoxLayout()
+        fila.addStretch()
+        fila.addWidget(self.detalle)
+        fila.addStretch()
+        layout.addLayout(fila)
+        layout.addStretch()
+        self.setText(texto)
+        self._pintar_icono()
+
+    def setText(self, texto: str) -> None:
+        titulo, _, detalle = texto.partition("\n")
+        self.titulo.setText(titulo)
+        self.detalle.setText(detalle)
+        self.detalle.setVisible(bool(detalle))
+
+    def changeEvent(self, evento) -> None:
+        # Al cambiar de tema cambia la hoja de estilos: repintar con sus colores.
+        if evento.type() == QEvent.Type.StyleChange:
+            self._pintar_icono()
+        super().changeEvent(evento)
+
+    def _pintar_icono(self) -> None:
+        from app.ui.iconos_menu import icono  # (iconos_menu importa el tema)
+
+        d = self._DIAMETRO
+        escala = self.devicePixelRatioF() or 1.0
+        imagen = QPixmap(int(d * escala), int(d * escala))
+        imagen.setDevicePixelRatio(escala)
+        imagen.fill(Qt.GlobalColor.transparent)
+        p = QPainter(imagen)
+        p.setRenderHint(QPainter.RenderHint.Antialiasing)
+        fondo = QColor(theme.ACENTO)
+        fondo.setAlphaF(0.14)
+        p.setPen(Qt.PenStyle.NoPen)
+        p.setBrush(fondo)
+        p.drawEllipse(QRectF(0, 0, d, d))
+        lado = 34
+        p.drawPixmap(
+            int((d - lado) / 2), int((d - lado) / 2), icono(self._icono, theme.ACENTO_TEXTO).pixmap(lado, lado)
+        )
+        p.end()
+        self._dibujo.setPixmap(imagen)

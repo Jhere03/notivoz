@@ -23,3 +23,6 @@ assets/models/
 
 # Generado al empaquetar (lo crea empaquetado/construir.py)
 empaquetado/version_windows.txt
+
+# Material promocional (videos y sus scripts): fuera del repositorio
+promo/

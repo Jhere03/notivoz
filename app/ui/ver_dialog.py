@@ -20,6 +20,7 @@ from PySide6.QtWidgets import (
 from app.data.models import Importancia, Nota, Pendiente
 from app.ui import theme
 from app.ui.formato import fecha_hora_corta
+from app.ui.iconos_menu import poner_icono
 
 _ANCHO_MINIMO = 460
 _ANCHO_ETIQUETAS = 130
@@ -135,8 +136,9 @@ class VerDialog(QDialog):
         desplazable.setFrameShape(QScrollArea.Shape.NoFrame)
         desplazable.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
 
-        editar = QPushButton("✎  Editar")
+        editar = QPushButton("Editar")
         editar.setObjectName("Secundario")
+        poner_icono(editar, "lapiz", "secundario")
         editar.setAutoDefault(False)
         editar.clicked.connect(lambda: self.done(_EDITAR))
         cerrar = QPushButton("Cerrar")

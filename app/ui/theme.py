@@ -27,8 +27,16 @@ _OSCURO = {
     "texto_suave": "#8b93a1",
     "acento": "#7c5cff",
     "acento_hover": "#8f74ff",
+    # Texto e iconos de color acento sobre fondo tonal (botones secundarios, enlaces).
+    "acento_texto": "#b4a3ff",
     # Solo para la hoja de estilos.
-    "fondo_widget": "#14161b",  # fondo general de cualquier widget
+    "fondo_widget": "#14161b",
+    # Botón secundario: acento suave en vez de un bloque blanco que compite con el principal.
+    "tonal": f"rgba({_ACENTO_RGB}, 0.14)",
+    "tonal_hover": f"rgba({_ACENTO_RGB}, 0.24)",
+    "tonal_borde": f"rgba({_ACENTO_RGB}, 0.34)",
+    # Anillo de foco del teclado.
+    "foco": "#a996ff",  # fondo general de cualquier widget
     "lateral": "#1c1f26",  # menú de la izquierda
     "fondo_ventana": "",        # fondo de ventanas y diálogos (solo translúcido)
     "boton": "#242832",
@@ -64,7 +72,12 @@ _CLARO = {
     "texto_suave": "#6b7280",
     "acento": "#7c5cff",
     "acento_hover": "#6b4cf0",
+    "acento_texto": "#5b3bdc",
     "fondo_widget": "#f3f4f7",
+    "tonal": f"rgba({_ACENTO_RGB}, 0.10)",
+    "tonal_hover": f"rgba({_ACENTO_RGB}, 0.17)",
+    "tonal_borde": f"rgba({_ACENTO_RGB}, 0.32)",
+    "foco": "#7c5cff",
     "lateral": "#ffffff",
     "fondo_ventana": "",
     "boton": "#ffffff",
@@ -109,6 +122,10 @@ _TRANSLUCIDO = {
 
 _PALETAS = {OSCURO: _OSCURO, CLARO: _CLARO, TRANSLUCIDO: _TRANSLUCIDO}
 
+# Segoe UI Variable (Windows 11): más nítida en cada tamaño; en Windows 10 se usa Segoe UI.
+_FUENTE_TEXTO = '"Segoe UI Variable Text", "Segoe UI"'
+_FUENTE_TITULO = '"Segoe UI Variable Display", "Segoe UI"'
+
 _COLORES_ESTADO = {
     OSCURO: {
         Estado.PENDIENTE: "#3d8bfd",   # azul
@@ -140,7 +157,7 @@ _COLORES_IMPORTANCIA = {
 # Se rellenan con el tema activo en `_activar`.
 tema_actual = OSCURO
 FONDO = SUPERFICIE = SUPERFICIE_ALTA = BORDE = ""
-TEXTO = TEXTO_SUAVE = ACENTO = ACENTO_HOVER = ""
+TEXTO = TEXTO_SUAVE = ACENTO = ACENTO_HOVER = ACENTO_TEXTO = ""
 # Diccionarios que se actualizan en el sitio: las referencias guardadas siguen valiendo.
 COLOR_ESTADO: dict = {}
 COLOR_IMPORTANCIA: dict = {}
@@ -153,6 +170,11 @@ def construir_qss(nombre: str) -> str:
     # estilos mientras las constantes de Python siguen siendo colores opacos.
     for clave in ("superficie", "superficie_alta", "borde"):
         p[clave] = p.get(f"{clave}_css", p[clave])
+    from app.ui.iconos_menu import glifo  # (aquí: iconos_menu importa este módulo)
+
+    p["glifo_check"] = glifo("check", "#ffffff")
+    p["glifo_flecha"] = glifo("flecha_abajo", p["texto_suave"])
+    p["glifo_flecha_activa"] = glifo("flecha_abajo", p["acento_texto"])
     c = SimpleNamespace(**p)
     ventana = (
         f"""
@@ -174,14 +196,19 @@ QComboBoxPrivateContainer {{
 QWidget {{
     background: {c.fondo_widget};
     color: {c.texto};
-    font-family: "Segoe UI";
+    font-family: {_FUENTE_TEXTO};
     font-size: 10pt;
 }}{ventana}
 QToolTip {{
     background: {c.emergente};
     color: {c.texto};
     border: 1px solid {c.borde};
-    padding: 4px 6px;
+    border-radius: 6px;
+    padding: 5px 8px;
+}}
+QLabel {{
+    selection-background-color: {c.acento};
+    selection-color: white;
 }}
 
 /* Barra lateral */
@@ -191,6 +218,7 @@ QToolTip {{
 }}
 #Logo {{
     background: transparent;
+    font-family: {_FUENTE_TITULO};
     font-size: 17pt;
     font-weight: 700;
     color: {c.texto};
@@ -206,7 +234,7 @@ QToolTip {{
     background: transparent;
     border: none;
     outline: none;
-    font-weight: bold;
+    font-weight: 600;
 }}
 #Nav::item {{
     padding: 10px 12px;
@@ -233,7 +261,8 @@ QToolTip {{
 
 /* Encabezados */
 #TituloVista {{
-    font-size: 18pt;
+    font-family: {_FUENTE_TITULO};
+    font-size: 20pt;
     font-weight: 600;
 }}
 #Resumen, #Vacio, #Proximamente, QLabel[suave="true"] {{
@@ -242,13 +271,25 @@ QToolTip {{
 #Vacio, #Proximamente {{
     font-size: 11pt;
 }}
+/* Estado vacío: icono, título y una pista de qué hacer. */
+#EstadoVacio, #EstadoVacio QLabel {{
+    background: transparent;
+}}
+#VacioTitulo {{
+    font-family: {_FUENTE_TITULO};
+    font-size: 13pt;
+    font-weight: 600;
+}}
+#VacioDetalle {{
+    color: {c.texto_suave};
+}}
 
 /* Controles */
 QLineEdit, QPlainTextEdit, QComboBox {{
     background: {c.superficie};
     border: 1px solid {c.borde};
-    border-radius: 6px;
-    padding: 6px 8px;
+    border-radius: 8px;
+    padding: 7px 10px;
     selection-background-color: {c.acento};
     selection-color: white;
 }}
@@ -262,17 +303,32 @@ QLineEdit:focus, QPlainTextEdit:focus, QComboBox:focus {{
 QTextEdit#CampoLectura {{
     background: {c.superficie};
     border: 1px solid {c.borde};
-    border-radius: 6px;
+    border-radius: 8px;
     selection-background-color: {c.acento};
     selection-color: white;
 }}
+QComboBox {{
+    padding-right: 30px;
+}}
 QComboBox::drop-down {{
+    subcontrol-origin: padding;
+    subcontrol-position: top right;
     border: none;
-    width: 22px;
+    width: 30px;
+}}
+QComboBox::down-arrow {{
+    image: url({c.glifo_flecha});
+    width: 12px;
+    height: 12px;
+}}
+QComboBox::down-arrow:on {{
+    image: url({c.glifo_flecha_activa});
 }}
 QComboBox QAbstractItemView {{
     background: {c.emergente};
     border: 1px solid {c.borde};
+    border-radius: 8px;
+    padding: 4px;
     selection-background-color: {c.acento};
     selection-color: white;
     outline: none;
@@ -280,7 +336,7 @@ QComboBox QAbstractItemView {{
 QPushButton {{
     background: {c.boton};
     border: 1px solid {c.borde};
-    border-radius: 6px;
+    border-radius: 8px;
     padding: 7px 14px;
     /* Espacio reservado para "crecer" al pasar el cursor sin mover nada alrededor. */
     margin: 2px;
@@ -299,12 +355,16 @@ QPushButton:pressed:!disabled {{
 }}
 QPushButton:focus {{
     outline: none;
+    border-color: {c.foco};
 }}
 QPushButton#Primario {{
     background: {c.acento};
-    border: none;
+    border: 1px solid {c.acento};
     color: white;
     font-weight: 600;
+}}
+QPushButton#Primario:focus {{
+    border-color: {c.foco};
 }}
 QPushButton#Primario:hover {{
     background: {c.acento_hover};
@@ -313,17 +373,27 @@ QPushButton#Primario:pressed {{
     background: {c.acento_pulsado};
 }}
 QPushButton#Secundario {{
-    background: {c.secundario};
-    border: none;
-    color: {c.secundario_texto};
+    background: {c.tonal};
+    border: 1px solid {c.tonal_borde};
+    color: {c.acento_texto};
     font-weight: 600;
 }}
 QPushButton#Secundario:hover {{
-    background: {c.secundario_hover};
+    background: {c.tonal_hover};
+    border-color: {c.acento};
 }}
-QPushButton:disabled {{
-    color: {c.texto_suave};
+QPushButton#Secundario:focus {{
+    border-color: {c.foco};
+}}
+QPushButton#Secundario:checked {{
+    background: {c.acento};
+    border-color: {c.acento};
+    color: white;
+}}
+QPushButton:disabled, QPushButton#Primario:disabled, QPushButton#Secundario:disabled {{
+    color: {c.deshabilitado};
     background: {c.superficie};
+    border-color: {c.borde};
 }}
 
 /* Tabla */
@@ -331,7 +401,7 @@ QTableView {{
     background: {c.superficie};
     alternate-background-color: {c.alterna};
     border: 1px solid {c.borde};
-    border-radius: 8px;
+    border-radius: 12px;
     gridline-color: transparent;
     selection-background-color: {c.seleccion};
     selection-color: {c.texto};
@@ -355,8 +425,12 @@ QHeaderView::section {{
     color: {c.texto_suave};
     border: none;
     border-bottom: 1px solid {c.borde};
-    padding: 8px;
+    padding: 10px 8px;
+    font-size: 9pt;
     font-weight: 600;
+}}
+QHeaderView::section:hover {{
+    color: {c.texto};
 }}
 QTableCornerButton::section {{
     background: {c.superficie};
@@ -428,9 +502,12 @@ QPushButton#Enlace {{
     font-size: 9pt;
 }}
 QPushButton#Enlace:hover {{
-    color: {c.acento_hover};
-    background: rgba({_ACENTO_RGB}, 0.14);
+    color: {c.acento_texto};
+    background: {c.tonal};
     border-radius: 6px;
+}}
+QPushButton#Enlace:focus {{
+    color: {c.acento_texto};
 }}
 QPushButton::menu-indicator {{
     image: none;
@@ -442,18 +519,29 @@ QCheckBox {{
     background: transparent;
 }}
 QCheckBox::indicator {{
-    width: 16px;
-    height: 16px;
+    width: 18px;
+    height: 18px;
     border: 1px solid {c.texto_suave};
-    border-radius: 4px;
+    border-radius: 5px;
     background: {c.superficie};
 }}
-QCheckBox::indicator:hover {{
+QCheckBox::indicator:hover, QCheckBox:focus::indicator {{
     border-color: {c.acento};
 }}
 QCheckBox::indicator:checked {{
     background: {c.acento};
     border-color: {c.acento};
+    image: url({c.glifo_check});
+}}
+QCheckBox::indicator:checked:hover {{
+    background: {c.acento_hover};
+    border-color: {c.acento_hover};
+}}
+QCheckBox::indicator:disabled {{
+    border-color: {c.deshabilitado};
+}}
+QCheckBox::indicator:checked:disabled {{
+    background: {c.deshabilitado};
 }}
 QLineEdit:disabled {{
     color: {c.texto_suave};
@@ -466,7 +554,7 @@ QLineEdit:disabled {{
 #NotaCard {{
     background: {c.superficie};
     border: 1px solid {c.borde};
-    border-radius: 10px;
+    border-radius: 12px;
 }}
 #NotaCard:hover {{
     border-color: {c.nota_hover};
@@ -487,9 +575,9 @@ QLineEdit:disabled {{
     font-size: 9pt;
 }}
 #BadgeProximo {{
-    background: rgba({_ACENTO_RGB}, 0.18);
-    border: 1px solid rgba({_ACENTO_RGB}, 0.6);
-    color: {c.acento_hover};
+    background: {c.tonal};
+    border: 1px solid {c.tonal_borde};
+    color: {c.acento_texto};
 }}
 #BadgeAvisado, #BadgeCreada {{
     background: transparent;
@@ -638,6 +726,10 @@ QPushButton#BotonActualizar:hover {{
     font-size: 9pt;
     padding: 8px 18px 0 18px;
 }}
+#EstadoEscucha[activo="true"] {{
+    color: {c.acento_texto};
+    font-weight: 600;
+}}
 QProgressBar {{
     background: {c.superficie_alta};
     border: 1px solid {c.borde};
@@ -668,13 +760,14 @@ QListWidget::item:selected {{
 #Seccion {{
     background: {c.superficie};
     border: 1px solid {c.borde};
-    border-radius: 10px;
+    border-radius: 12px;
 }}
 #Seccion QLabel, #Seccion QCheckBox, #Fila {{
     background: transparent;
 }}
 #SeccionTitulo {{
-    font-size: 12pt;
+    font-family: {_FUENTE_TITULO};
+    font-size: 12.5pt;
     font-weight: 600;
 }}
 #Ayuda {{
@@ -776,12 +869,15 @@ QCalendarWidget QAbstractItemView:disabled {{
 QMenu {{
     background: {c.emergente};
     border: 1px solid {c.borde};
-    border-radius: 6px;
-    padding: 4px;
+    border-radius: 10px;
+    padding: 5px;
 }}
 QMenu::item {{
-    padding: 6px 22px;
-    border-radius: 4px;
+    padding: 7px 22px 7px 14px;
+    border-radius: 6px;
+}}
+QMenu::item:disabled {{
+    color: {c.deshabilitado};
 }}
 QMenu::item:selected {{
     background: {c.acento};
@@ -804,7 +900,7 @@ QStatusBar {{
 def _activar(nombre: str) -> None:
     """Pone las constantes del módulo con los valores del tema `nombre`."""
     global tema_actual, FONDO, SUPERFICIE, SUPERFICIE_ALTA, BORDE
-    global TEXTO, TEXTO_SUAVE, ACENTO, ACENTO_HOVER, QSS
+    global TEXTO, TEXTO_SUAVE, ACENTO, ACENTO_HOVER, ACENTO_TEXTO, QSS
     if nombre not in _PALETAS:
         nombre = OSCURO
     p = _PALETAS[nombre]
@@ -812,8 +908,8 @@ def _activar(nombre: str) -> None:
     FONDO, SUPERFICIE, SUPERFICIE_ALTA, BORDE = (
         p["fondo"], p["superficie"], p["superficie_alta"], p["borde"]
     )
-    TEXTO, TEXTO_SUAVE, ACENTO, ACENTO_HOVER = (
-        p["texto"], p["texto_suave"], p["acento"], p["acento_hover"]
+    TEXTO, TEXTO_SUAVE, ACENTO, ACENTO_HOVER, ACENTO_TEXTO = (
+        p["texto"], p["texto_suave"], p["acento"], p["acento_hover"], p["acento_texto"]
     )
     variante = CLARO if nombre == CLARO else OSCURO
     COLOR_ESTADO.clear()
