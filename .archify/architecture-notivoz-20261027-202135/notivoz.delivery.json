@@ -1,0 +1,17 @@
+{
+  "schemaVersion": 1,
+  "receiptId": "e75bfc7a-d043-48e0-8856-a692355c287c",
+  "status": "current",
+  "command": "deliver",
+  "type": "architecture",
+  "input": "D:\\Projects-github\\notivoz\\.archify\\architecture-notivoz-20261027-202135\\candidate.json",
+  "output": "D:\\Projects-github\\notivoz\\.archify\\architecture-notivoz-20261027-202135\\notivoz.html",
+  "specification": {
+    "sha256": "936262209877ad4b24c18a39c97ddc51a470eecd9dcfb642acf9a984161e9a6b",
+    "bytes": 10358
+  },
+  "artifact": {
+    "sha256": "94e47e83c9147e17107b16590fdbcbd4dd47bf904c3d8f3a6ba552b5f5d360cd",
+    "bytes": 878546
+  }
+}

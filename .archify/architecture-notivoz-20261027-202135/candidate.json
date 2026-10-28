@@ -1,0 +1,143 @@
+{
+  "schema_version": 1,
+  "diagram_type": "architecture",
+  "meta": {
+    "title": "Arquitectura de Notivoz v0.1.1",
+    "locale": "es",
+    "output": ".archify/architecture-notivoz-20261027-202135/notivoz.html",
+    "quality_profile": "showcase",
+    "repository": {
+      "url": "https://github.com/Jhere03/notivoz.git",
+      "provider": "github",
+      "link_mode": "web",
+      "revision": "22a0550eb2db235be5af5c20b2698142c3652b78"
+    }
+  },
+  "components": [
+    { "id": "usuario", "type": "external", "label": "Tú", "sublabel": "voz · mouse · teclado", "icon": "person", "pos": [40, 190], "size": [150, 76] },
+
+    { "id": "escucha", "type": "backend", "label": "Escucha", "sublabel": "Vosk «noti voz» + anti-eco", "pos": [360, 40], "size": [170, 76],
+      "sources": [
+        { "path": "app/services/escucha.py", "line": 221, "end_line": 230, "label": "clase Escucha" },
+        { "path": "app/services/escucha.py", "line": 338, "end_line": 349, "label": "micrófono y cancelador de eco" },
+        { "path": "app/services/escucha.py", "line": 400, "end_line": 418, "label": "fin del pedido y dictado_listo" }
+      ] },
+    { "id": "burbuja", "type": "frontend", "label": "Burbuja de voz", "sublabel": "presiónala o pulsa tu tecla", "pos": [360, 190], "size": [170, 76],
+      "sources": [
+        { "path": "app/ui/burbuja.py", "line": 146, "end_line": 150, "label": "BurbujaVoz y señal tocada" },
+        { "path": "app/ui/burbuja.py", "line": 260, "end_line": 266, "label": "tecla para hablar (WM_HOTKEY)" },
+        { "path": "app/ui/tecla_hablar.py", "line": 31, "end_line": 42, "label": "RegisterHotKey" }
+      ] },
+    { "id": "ventana", "type": "frontend", "label": "Ventana principal", "sublabel": "tareas · notas · chat · config", "pos": [360, 340], "size": [170, 76],
+      "sources": [
+        { "path": "app/ui/main_window.py", "line": 66, "end_line": 91, "label": "vistas y menú lateral" },
+        { "path": "app/ui/chat_view.py", "line": 150, "end_line": 153, "label": "Chateemos usa el Asistente" }
+      ] },
+    { "id": "programadores", "type": "backend", "label": "Programadores", "sublabel": "recordatorios · rutinas · apagado", "pos": [360, 490], "size": [170, 76],
+      "sources": [
+        { "path": "app/ui/recordatorios.py", "line": 133, "end_line": 170, "label": "recordatorios vencidos" },
+        { "path": "app/ui/productividad.py", "line": 73, "end_line": 90, "label": "rutinas programadas" },
+        { "path": "app/ui/apagado_ui.py", "line": 102, "end_line": 150, "label": "apagado programado" }
+      ] },
+    { "id": "actualizacion", "type": "backend", "label": "Actualizaciones", "sublabel": "descarga y verifica SHA-256", "pos": [360, 640], "size": [170, 76],
+      "sources": [
+        { "path": "app/services/actualizacion.py", "line": 62, "end_line": 122, "label": "buscar, descargar e instalar" }
+      ] },
+
+    { "id": "whisper", "type": "backend", "label": "Whisper local", "sublabel": "ctranslate2 · en tu PC", "pos": [680, 40], "size": [170, 76],
+      "sources": [
+        { "path": "app/services/transcripcion.py", "line": 139, "end_line": 183, "label": "Transcriptor" },
+        { "path": "app/ui/asistente_voz.py", "line": 148, "end_line": 158, "label": "la escucha transcribe aquí" }
+      ] },
+    { "id": "controlador", "type": "backend", "label": "ControladorIA", "sublabel": "pedido → IA → voz y efectos", "pos": [680, 190], "size": [170, 76],
+      "sources": [
+        { "path": "app/ui/asistente_voz.py", "line": 44, "end_line": 70, "label": "ControladorIA" },
+        { "path": "app/ui/asistente_voz.py", "line": 129, "end_line": 146, "label": "precalentar y presionar" },
+        { "path": "app/ui/asistente_voz.py", "line": 186, "end_line": 240, "label": "procesar y responder" }
+      ] },
+    { "id": "servicios", "type": "backend", "label": "Servicios de datos", "sublabel": "pendientes · notas · comandos…", "pos": [680, 340], "size": [170, 76],
+      "sources": [
+        { "path": "app/services/pendientes.py", "line": 87, "end_line": 110, "label": "guardar tarea" },
+        { "path": "app/services/notas.py", "line": 75, "end_line": 95, "label": "guardar nota" },
+        { "path": "app/services/comandos.py", "line": 110, "end_line": 130, "label": "ejecutar comando" }
+      ] },
+    { "id": "sqlite", "type": "database", "label": "SQLite", "sublabel": "%APPDATA%\\Notivoz\\notivoz.db", "pos": [680, 640], "size": [170, 76],
+      "sources": [
+        { "path": "app/data/database.py", "line": 33, "end_line": 64, "label": "motor y sesiones" },
+        { "path": "app/config.py", "line": 19, "end_line": 34, "label": "carpeta de datos" },
+        { "path": "app/data/models.py", "line": 39, "end_line": 157, "label": "tablas" }
+      ] },
+
+    { "id": "credenciales", "type": "security", "label": "Credenciales", "sublabel": "clave cifrada en Windows", "pos": [1000, 40], "size": [170, 76],
+      "sources": [
+        { "path": "app/services/credenciales.py", "line": 14, "end_line": 40, "label": "keyring" }
+      ] },
+    { "id": "asistente", "type": "backend", "label": "Asistente IA", "sublabel": "Claude Haiku 5.5 · límites", "pos": [1000, 190], "size": [170, 76],
+      "sources": [
+        { "path": "app/services/asistente.py", "line": 38, "end_line": 55, "label": "modelo, API y límite mensual" },
+        { "path": "app/services/asistente.py", "line": 229, "end_line": 268, "label": "responder y límites" },
+        { "path": "app/services/asistente.py", "line": 295, "end_line": 340, "label": "bucle de herramientas" }
+      ] },
+    { "id": "herramientas", "type": "security", "label": "Herramientas IA", "sublabel": "lista cerrada · todo validado", "pos": [1000, 340], "size": [170, 76],
+      "sources": [
+        { "path": "app/services/ia_herramientas.py", "line": 355, "end_line": 360, "label": "definiciones" },
+        { "path": "app/services/ia_herramientas.py", "line": 678, "end_line": 682, "label": "solo si pediste eliminar" },
+        { "path": "app/services/ia_herramientas.py", "line": 730, "end_line": 760, "label": "ejecución validada" }
+      ] },
+    { "id": "voz", "type": "backend", "label": "Voz (TTS)", "sublabel": "edge-tts + caché · SAPI", "pos": [1000, 490], "size": [170, 76],
+      "sources": [
+        { "path": "app/services/voz.py", "line": 152, "end_line": 191, "label": "voz neural y respaldo SAPI" },
+        { "path": "app/services/voz.py", "line": 218, "end_line": 240, "label": "caché y generación" }
+      ] },
+
+    { "id": "claude", "type": "external", "label": "API de Anthropic", "sublabel": "api.anthropic.com", "pos": [1320, 190], "size": [170, 76] },
+    { "id": "windows", "type": "external", "label": "Windows", "sublabel": "abrir apps · shutdown.exe", "pos": [1320, 340], "size": [170, 76],
+      "sources": [
+        { "path": "app/services/lanzador.py", "line": 62, "end_line": 75, "label": "ShellExecuteEx" },
+        { "path": "app/services/apagado.py", "line": 118, "end_line": 126, "label": "shutdown sin forzar" }
+      ] },
+    { "id": "edge", "type": "external", "label": "Voces de Microsoft", "sublabel": "edge-tts (internet)", "pos": [1320, 490], "size": [170, 76] },
+    { "id": "github", "type": "external", "label": "GitHub Releases", "sublabel": "Jhere03/notivoz", "pos": [40, 640], "size": [150, 76] }
+  ],
+  "connections": [
+    { "id": "habla", "from": "usuario", "to": "escucha", "label": "habla", "variant": "emphasis" },
+    { "id": "presiona", "from": "usuario", "to": "burbuja", "label": "presiona" },
+    { "id": "usa-app", "from": "usuario", "to": "ventana", "label": "usa la app" },
+    { "id": "palabra-activacion", "from": "escucha", "to": "burbuja", "label": "«Notivoz»" },
+    { "id": "audio-pedido", "from": "escucha", "to": "whisper", "label": "audio", "variant": "emphasis" },
+    { "id": "texto-pedido", "from": "whisper", "to": "controlador", "label": "texto", "variant": "emphasis" },
+    { "id": "escuchar-ya", "from": "burbuja", "to": "controlador", "label": "escuchar ya" },
+    { "id": "pedido-ia", "from": "controlador", "to": "asistente", "label": "pedido", "variant": "emphasis" },
+    { "id": "lee-clave", "from": "asistente", "to": "credenciales", "label": "lee clave", "variant": "security" },
+    { "id": "messages-api", "from": "asistente", "to": "claude", "label": "HTTPS", "variant": "emphasis" },
+    { "id": "tool-use", "from": "asistente", "to": "herramientas", "label": "tool_use" },
+    { "id": "acciones", "from": "herramientas", "to": "servicios", "label": "acciones", "variant": "security" },
+    { "id": "apps-apagar", "from": "herramientas", "to": "windows", "label": "apps · apagar" },
+    { "id": "lee-guarda", "from": "ventana", "to": "servicios", "label": "lee y guarda" },
+    { "id": "sql", "from": "servicios", "to": "sqlite", "label": "SQLAlchemy" },
+    { "id": "vencidas", "from": "programadores", "to": "servicios", "label": "vencidas" },
+    { "id": "respuesta-voz", "from": "controlador", "to": "voz", "label": "respuesta", "variant": "emphasis" },
+    { "id": "texto-mp3", "from": "voz", "to": "edge", "label": "texto → mp3", "variant": "dashed" },
+    { "id": "busca-version", "from": "actualizacion", "to": "github", "label": "nueva versión", "variant": "dashed" }
+  ],
+  "cards": [
+    { "dot": "violet", "title": "Pedido por voz", "items": [
+      "«Notivoz» muestra la burbuja; al presionarla (o tu tecla) te escucha",
+      "Al callarte, Whisper transcribe en tu PC: el audio no sale del equipo",
+      "Solo el texto va a Claude; la respuesta se dice y se lee en la nube",
+      "Comandos exactos («Notivoz, modo relax») se ejecutan sin IA"
+    ] },
+    { "dot": "rose", "title": "Seguridad", "items": [
+      "La clave de la IA va cifrada en el Administrador de credenciales, nunca en el .exe",
+      "Solo se conecta a api.anthropic.com; límite de 1 USD al mes",
+      "La IA solo usa una lista cerrada de acciones, validadas antes de ejecutarse",
+      "Eliminar o apagar la PC solo si tú lo pides; «ahora» pide tu «sí»"
+    ] },
+    { "dot": "emerald", "title": "También", "items": [
+      "Chateemos usa el mismo Asistente IA por escrito",
+      "Programadores: avisan en voz alta y abren la alerta encima de todo",
+      "Modelos de Vosk y Whisper se descargan una vez y se verifican con SHA-256",
+      "Todo se guarda en tu PC: SQLite en %APPDATA%\\Notivoz"
+    ] }
+  ]
+}
